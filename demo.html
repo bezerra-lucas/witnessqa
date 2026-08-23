@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Public Record · WitnessQA — Live report from a real production app</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F4F1EA; --paper-2:#FBF9F4; --ink:#17150F; --ink-soft:#4A463B;
+    --rule:#C9C3B2; --pass:#0E6B3D; --fail:#B3261E;
+    --serif:'Instrument Serif',Georgia,serif; --sans:'Archivo',Helvetica,sans-serif; --mono:'IBM Plex Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .topbar{background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:6px 0;text-align:center}
+  .wrap{max-width:920px;margin:0 auto;padding:48px 24px 96px}
+  a{color:inherit}
+  .back{font-family:var(--mono);font-size:12px;text-decoration:none;border-bottom:1px solid var(--ink)}
+  header{padding:40px 0 28px;border-bottom:2px solid var(--ink)}
+  h1{font-family:var(--serif);font-weight:400;font-size:clamp(34px,5vw,54px);line-height:1.05}
+  h1 em{font-style:italic;color:var(--pass)}
+  .meta{display:flex;gap:26px;flex-wrap:wrap;margin-top:18px;font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+  .meta b{color:var(--ink)}
+  .stamp{float:right;font-family:var(--mono);font-weight:600;font-size:14px;color:var(--pass);border:2px solid var(--pass);padding:6px 16px;transform:rotate(-3deg);letter-spacing:.14em;margin-top:6px}
+
+  section{padding:36px 0;border-bottom:1px solid var(--rule)}
+  .sec-label{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:10px}
+  p.lede{max-width:62ch;font-size:17px;color:var(--ink-soft)}
+
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px;margin-top:8px}
+  td,th{text-align:left;padding:11px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+  th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+  .v{font-weight:600}
+  .v.pass{color:var(--pass)} .v.fail{color:var(--fail)}
+
+  .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:22px;margin-top:10px}
+  figure{border:2px solid var(--ink);background:var(--paper-2);box-shadow:5px 5px 0 var(--ink)}
+  figure img{width:100%;display:block;border-bottom:2px solid var(--ink)}
+  figcaption{font-family:var(--mono);font-size:11px;padding:9px 12px;color:var(--ink-soft)}
+  figcaption b{color:var(--ink)}
+
+  .note{border:2px solid var(--ink);background:var(--paper-2);box-shadow:6px 6px 0 var(--ink);padding:22px 24px;margin-top:10px;font-size:15px}
+  .note strong{font-family:var(--mono);font-size:13px;letter-spacing:.06em}
+  footer{margin-top:60px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px}
+  .btn{font-family:var(--mono);font-size:13px;font-weight:600;text-decoration:none;padding:10px 20px;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper)}
+  .btn:hover{background:var(--pass);border-color:var(--pass)}
+</style>
+</head>
+<body>
+<div class="topbar">Case No. WR-2026-0001 · Filed under oath by autonomous agents</div>
+<div class="wrap">
+  <a class="back" href="/">← back to witnessqa</a>
+  <header>
+    <div class="stamp">PASSED · 7/8</div>
+    <h1>Public record: a live run against <em>a real production app</em></h1>
+    <div class="meta">
+      <span>Subject: <b>client portal (real estate SaaS)</b></span>
+      <span>Date: <b>2026-08-23</b></span>
+      <span>Agent runs: <b>8 flows</b></span>
+      <span>Evidence items: <b>24 screenshots + logs</b></span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-label">§1 — Scope of examination</div>
+    <p class="lede">This is not a mockup. The agents below were pointed at the staging portal of a real product (our own — we dogfood everything). They logged in, mapped the app as a graph of screens, generated regression scenarios for every branch, and executed them. Every step below links to captured evidence.</p>
+  </section>
+
+  <section>
+    <div class="sec-label">§2 — Verdict per flow</div>
+    <table>
+      <tr><th>Flow under examination</th><th>Steps</th><th>Verdict</th><th>Evidence</th></tr>
+      <tr><td>Login (email + password → dashboard)</td><td>6</td><td class="v pass">PASS</td><td><a href="demo/step-05.png">final state ↗</a></td></tr>
+      <tr><td>Home / units listing</td><td>3</td><td class="v pass">PASS</td><td><a href="demo/home-step-02.png">final state ↗</a></td></tr>
+      <tr><td>/projects route</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
+      <tr><td>Project feedback screen</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
+      <tr><td>Unit intro (welcome flow)</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
+      <tr><td>Unit checkout screen</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
+      <tr><td>Units index</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
+      <tr><td>Legacy scenario w/o baseUrl (operator error)</td><td>1</td><td class="v fail">FAIL</td><td>cause identified below</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <div class="sec-label">§3 — Evidence gallery (login flow)</div>
+    <div class="gallery">
+      <figure><img src="demo/step-00.png" alt="Step 0 - landing"><figcaption><b>STEP 00</b> — goto / — login page rendered</figcaption></figure>
+      <figure><img src="demo/step-03.png" alt="Step 3 - submit"><figcaption><b>STEP 03</b> — click submit</figcaption></figure>
+      <figure><img src="demo/step-05.png" alt="Step 5 - dashboard"><figcaption><b>STEP 05</b> — assert visible: logged-in dashboard ✓</figcaption></figure>
+      <figure><img src="demo/home-step-02.png" alt="Regression home"><figcaption><b>REGRESSION</b> — home route, session restored via storageState</figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-label">§4 — Investigation of the failing item</div>
+    <div class="note">
+      <strong>FINDING:</strong> The one failure was our own operator error — an example scenario shipped without a base URL. The agent navigated to a relative path with nothing to resolve against and reported <em>“Cannot navigate to invalid URL”</em>. Correctly attributed, correctly documented. A stale selector or app bug would receive the same treatment: console errors, HTML at failure time, and (with your own API key) an LLM root-cause analysis attached to the report.
+    </div>
+  </section>
+
+  <footer>
+    <span style="font-family:var(--mono);font-size:12px;color:var(--ink-soft)">Run executed locally · zero infrastructure · MIT-licensed CLI</span>
+    <a class="btn" href="/">Get your first report free →</a>
+  </footer>
+</div>
+</body>
+</html>
