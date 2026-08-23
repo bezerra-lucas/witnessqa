@@ -1,0 +1,9 @@
+name: regressao-home-1
+app: https://cliente.async.dev.br
+auth: .witness/auth/cliente-login.json
+steps:
+  - goto: https://cliente.async.dev.br
+  - wait: 1500
+  - expectVisible: "body"
+checks:
+  - noBrokenImages

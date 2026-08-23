@@ -1,0 +1,7 @@
+baseUrl: https://meuapp.com
+viewport:
+  width: 1440
+  height: 950
+credentials:
+  email: $WITNESS_EMAIL
+  password: $WITNESS_PASSWORD

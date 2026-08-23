@@ -1,0 +1,85 @@
+name: "WitnessQA"
+description: "AI agents that use your app like a real user and hand you the evidence"
+branding:
+  icon: "check-circle"
+  color: "green"
+
+inputs:
+  base-url:
+    description: "Base URL of the app under test"
+    required: true
+  scenarios:
+    description: "Path to scenarios dir or file (default: ./witness)"
+    required: false
+    default: "./witness"
+  api-key:
+    description: "BYOK key for root-cause LLM analysis (optional)"
+    required: false
+  model:
+    description: "LLM model for cause analysis (default: openai/gpt-4o-mini)"
+    required: false
+    default: "openai/gpt-4o-mini"
+  artifact-name:
+    description: "Name of the evidence artifact"
+    required: false
+    default: "witnessqa-report"
+  comment-pr:
+    description: "Post report summary as PR comment"
+    required: false
+    default: "true"
+
+outputs:
+  verdict:
+    description: "Overall verdict: pass | fail"
+  report-path:
+    description: "Path to REPORT.html"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install WitnessQA
+      shell: bash
+      run: npm install -g witnessqa && npx playwright install chromium --with-deps
+
+    - name: Run scenarios
+      id: run
+      shell: bash
+      env:
+        WITNESS_KEY: ${{ inputs.api-key }}
+        WITNESS_MODEL: ${{ inputs.model }}
+      run: |
+        set -o pipefail
+        witnessqa run "${{ inputs.scenarios }}" \
+          --base-url "${{ inputs.base-url }}" \
+          --out .witness/runs/ci 2>&1 | tee witness-log.txt || echo "verdict=fail" >> "$GITHUB_OUTPUT"
+        echo "verdict=pass" >> "$GITHUB_OUTPUT"
+        echo "report-path=.witness/runs/ci/REPORT.html" >> "$GITHUB_OUTPUT"
+
+    - name: Upload evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          .witness/runs/ci/
+        retention-days: 30
+
+    - name: Comment on PR
+      if: ${{ inputs.comment-pr == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      run: |
+        VERDICT="${{ steps.run.outputs.verdict }}"
+        if [ "$VERDICT" = "pass" ]; then ICON="✅"; else ICON="❌"; fi
+        gh pr comment "$GITHUB_EVENT_NUMBER" --body "$(cat <<EOF
+        ## ${ICON} WitnessQA report
+        Flows examined against \`${{ inputs.base-url }}\`.
+        📎 Full evidence (screenshots per step + logs) in the **${{ inputs.artifact-name }}** artifact.
+        <sub>autonomous agents · evidence, not promises</sub>
+        EOF
+        )"
+      env:
+        GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,9 @@
+name: regressao-projects-8e056209-0f25-4491-8b4f-30d850bcc6cc-units-4
+app: https://cliente.async.dev.br
+auth: .witness/auth/cliente-login.json
+steps:
+  - goto: https://cliente.async.dev.br/projects/8e056209-0f25-4491-8b4f-30d850bcc6cc/units/ab5c070b-d2f1-4302-b8f6-666ebecd361e/intro
+  - wait: 1500
+  - expectVisible: "body"
+checks:
+  - noBrokenImages

@@ -1,0 +1,9 @@
+name: regressao-projects-2
+app: https://cliente.async.dev.br
+auth: .witness/auth/cliente-login.json
+steps:
+  - goto: https://cliente.async.dev.br/projects
+  - wait: 1500
+  - expectVisible: "body"
+checks:
+  - noBrokenImages

@@ -1,0 +1,12 @@
+{
+  "name": "witnessqa-worker",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "run": "node src/worker.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.49.0",
+    "yaml": "^2.6.0"
+  }
+}

@@ -1,0 +1,7 @@
+name: domod-smoke-cliente
+steps:
+  - goto: /
+  - wait: 2000
+  - expectVisible: "body"
+checks:
+  - noBrokenImages

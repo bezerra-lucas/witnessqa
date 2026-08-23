@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WitnessQA — Your app, witnessed. Evidence, not promises.</title>
+<meta name="description" content="AI agents open your web app like a real user, walk every flow, and hand you a signed report: screenshots, logs, and a verdict per feature. When something breaks, they find out why.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F4F1EA;
+    --paper-2:#EDE9DE;
+    --ink:#17150F;
+    --ink-soft:#4A463B;
+    --rule:#C9C3B2;
+    --pass:#0E6B3D;
+    --fail:#B3261E;
+    --serif:'Instrument Serif',Georgia,serif;
+    --sans:'Archivo',Helvetica,sans-serif;
+    --mono:'IBM Plex Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  ::selection{background:var(--pass);color:var(--paper)}
+
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+
+  /* ---------- header ---------- */
+  header{border-bottom:2px solid var(--ink)}
+  .topbar{background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:6px 0;text-align:center}
+  nav{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
+  .brand{display:flex;align-items:baseline;gap:10px;text-decoration:none;color:var(--ink)}
+  .brand .mark{font-family:var(--mono);font-weight:600;font-size:13px;border:1.5px solid var(--ink);padding:3px 8px;letter-spacing:.08em}
+  .brand .name{font-family:var(--serif);font-size:26px}
+  .brand .name em{font-style:italic}
+  .navlinks{display:flex;gap:28px;align-items:center;font-size:14px;font-weight:500}
+  .navlinks a{color:var(--ink-soft);text-decoration:none}
+  .navlinks a:hover{color:var(--ink)}
+  .btn{display:inline-block;font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:.04em;text-decoration:none;padding:10px 20px;border:1.5px solid var(--ink);color:var(--ink);background:transparent;transition:background .15s,color .15s}
+  .btn:hover{background:var(--ink);color:var(--paper)}
+  .btn.solid{background:var(--ink);color:var(--paper)}
+  .btn.solid:hover{background:var(--pass);border-color:var(--pass)}
+
+  /* ---------- hero ---------- */
+  .hero{padding:88px 0 72px;border-bottom:1px solid var(--rule);position:relative}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--pass);margin-bottom:22px;display:flex;align-items:center;gap:12px}
+  .kicker::before{content:"";width:34px;height:1.5px;background:var(--pass)}
+  h1{font-family:var(--serif);font-weight:400;font-size:clamp(44px,7vw,76px);line-height:1.04;letter-spacing:-.01em;max-width:15ch}
+  h1 em{font-style:italic;color:var(--pass)}
+  .hero p.lede{max-width:56ch;font-size:19px;color:var(--ink-soft);margin:28px 0 36px}
+  .hero .cta-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .hero .fineprint{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:16px}
+
+  /* ---------- report mock ---------- */
+  .evidence{margin-top:64px;border:2px solid var(--ink);background:#FBF9F4;box-shadow:6px 6px 0 var(--ink)}
+  .evidence-head{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--ink);padding:12px 20px;font-family:var(--mono);font-size:12px;letter-spacing:.06em}
+  .stamp{font-family:var(--mono);font-weight:600;font-size:13px;color:var(--pass);border:2px solid var(--pass);padding:4px 14px;transform:rotate(-3deg);letter-spacing:.14em}
+  .ev-grid{display:grid;grid-template-columns:1.4fr 1fr}
+  .ev-shot{border-right:2px solid var(--ink);background:repeating-linear-gradient(45deg,#EFECE2,#EFECE2 12px,#F4F1EA 12px,#F4F1EA 24px);min-height:280px;display:flex;align-items:center;justify-content:center;position:relative}
+  .ev-shot .placeholder{font-family:var(--mono);font-size:12px;color:var(--ink-soft);border:1.5px dashed var(--rule);padding:10px 18px;background:#FBF9F4}
+  .ev-rows{font-family:var(--mono);font-size:12.5px}
+  .ev-row{display:flex;justify-content:space-between;gap:12px;padding:13px 20px;border-bottom:1px solid var(--rule)}
+  .ev-row:last-child{border-bottom:0}
+  .ev-row .v{font-weight:600}
+  .v.pass{color:var(--pass)} .v.fail{color:var(--fail)}
+  .ev-note{padding:12px 20px;font-size:13px;color:var(--ink-soft);border-top:2px solid var(--ink);background:var(--paper)}
+  .ev-note strong{color:var(--ink)}
+
+  /* ---------- sections ---------- */
+  section{padding:80px 0;border-bottom:1px solid var(--rule)}
+  .sec-label{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:14px}
+  h2{font-family:var(--serif);font-weight:400;font-size:clamp(30px,4.5vw,44px);line-height:1.1;max-width:24ch;margin-bottom:18px}
+  h2 em{font-style:italic}
+  .sec-lede{max-width:60ch;color:var(--ink-soft);font-size:17px;margin-bottom:44px}
+
+  /* how */
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);border:2px solid var(--ink);background:#FBF9F4}
+  .step{padding:26px 22px;border-right:1px solid var(--rule)}
+  .step:last-child{border-right:0}
+  .step .n{font-family:var(--mono);font-size:12px;color:var(--pass);letter-spacing:.1em;margin-bottom:12px}
+  .step h3{font-family:var(--serif);font-size:21px;font-weight:400;margin-bottom:8px}
+  .step p{font-size:13.5px;color:var(--ink-soft)}
+
+  /* diff table */
+  .compare{display:grid;grid-template-columns:1fr 1fr;border:2px solid var(--ink);background:#FBF9F4}
+  .compare .col{padding:30px 28px}
+  .compare .col:first-child{border-right:2px solid var(--ink)}
+  .compare h3{font-family:var(--mono);font-size:13px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:18px}
+  .compare .them h3{color:var(--fail)}
+  .compare .us h3{color:var(--pass)}
+  .compare li{list-style:none;padding:10px 0;border-bottom:1px solid var(--rule);font-size:14.5px;display:flex;gap:10px}
+  .compare li:last-child{border-bottom:0}
+  .compare li::before{font-family:var(--mono);font-weight:600}
+  .them li::before{content:"×";color:var(--fail)}
+  .us li::before{content:"✓";color:var(--pass)}
+
+  /* pricing */
+  .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:2px solid var(--ink);background:#FBF9F4}
+  .plan{padding:32px 28px;border-right:1px solid var(--rule);position:relative}
+  .plan:last-child{border-right:0}
+  .plan.featured{background:var(--ink);color:var(--paper)}
+  .plan .pname{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px}
+  .plan.featured .pname{color:#9BD4B4}
+  .plan .price{font-family:var(--serif);font-size:46px;line-height:1;margin-bottom:4px}
+  .plan .per{font-family:var(--mono);font-size:12px;color:inherit;opacity:.6;margin-bottom:22px}
+  .plan ul{list-style:none}
+  .plan li{font-size:14px;padding:8px 0;border-bottom:1px solid var(--rule);display:flex;gap:10px}
+  .plan.featured li{border-color:#3A362B}
+  .plan li:last-child{border-bottom:0}
+  .plan li::before{content:"§";color:var(--pass);font-family:var(--mono)}
+  .plan.featured li::before{color:#9BD4B4}
+  .plan .btn{margin-top:24px;width:100%;text-align:center}
+  .plan.featured .btn{background:var(--paper);color:var(--ink);border-color:var(--paper)}
+  .plan.featured .btn:hover{background:var(--pass);border-color:var(--pass);color:var(--paper)}
+  .pricing-note{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:16px}
+
+  /* faq */
+  .faq{border:2px solid var(--ink);background:#FBF9F4}
+  details{border-bottom:1px solid var(--rule)}
+  details:last-child{border-bottom:0}
+  summary{cursor:pointer;padding:18px 24px;font-weight:600;font-size:15.5px;list-style:none;display:flex;justify-content:space-between;align-items:center}
+  summary::after{content:"+";font-family:var(--mono);font-size:20px;color:var(--pass)}
+  details[open] summary::after{content:"–"}
+  .faq-a{padding:0 24px 20px;color:var(--ink-soft);font-size:14.5px;max-width:70ch}
+
+  /* final cta */
+  .final{background:var(--ink);color:var(--paper);border-bottom:0}
+  .final h2{color:var(--paper);max-width:20ch}
+  .final .sec-label{color:#9BD4B4}
+  .final .sec-lede{color:#B8B2A2}
+  .final .btn{border-color:var(--paper);color:var(--paper)}
+  .final .btn:hover{background:var(--paper);color:var(--ink)}
+  .final .btn.solid{background:var(--pass);border-color:var(--pass)}
+  .final .btn.solid:hover{background:var(--paper);border-color:var(--paper);color:var(--ink)}
+
+  footer{padding:36px 0;font-family:var(--mono);font-size:12px;color:var(--ink-soft);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  footer a{color:var(--ink-soft)}
+
+  @media(max-width:860px){
+    .steps,.plans,.compare,.ev-grid{grid-template-columns:1fr}
+    .ev-shot{border-right:0;border-bottom:2px solid var(--ink)}
+    .compare .col:first-child{border-right:0;border-bottom:2px solid var(--ink)}
+    .step,.plan{border-right:0;border-bottom:1px solid var(--rule)}
+    .navlinks{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">Case No. 001 — witnessqa.com — every run recorded, every verdict signed</div>
+
+<header>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="#">
+        <span class="mark">W/QA</span>
+        <span class="name">Witness<em>QA</em></span>
+      </a>
+      <div class="navlinks">
+        <a href="#how">How it works</a>
+        <a href="#compare">Why different</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+        <a class="btn" href="#trial">Run your first witness</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- HERO -->
+  <div class="hero">
+    <div class="wrap">
+      <div class="kicker">Functional QA agents · Evidence-based</div>
+      <h1>Your app, witnessed. <em>Evidence,</em> not promises.</h1>
+      <p class="lede">WitnessQA agents open your web application like a real user — log in, click through every flow, and hand you a signed report: screenshots, console logs, and a pass/fail verdict per feature. When something breaks, they investigate why.</p>
+      <div class="cta-row">
+        <a class="btn solid" href="#trial">Run your first witness — free</a>
+        <a class="btn" href="#how">See how it works</a>
+      </div>
+      <p class="fineprint">No credit card. One complete run on your real app. Report in minutes.</p>
+
+      <!-- report mock -->
+      <div class="evidence">
+        <div class="evidence-head">
+          <span>WITNESS REPORT — RUN #047 — app.example.com — 2026-08-23 03:12 UTC</span>
+          <span class="stamp">PASSED 6/7</span>
+        </div>
+        <div class="ev-grid">
+          <div class="ev-shot">
+            <span class="placeholder">[ screenshot — checkout step 3 of 4 ]</span>
+          </div>
+          <div class="ev-rows">
+            <div class="ev-row"><span>§1 Sign in</span><span class="v pass">PASS · 4 shots</span></div>
+            <div class="ev-row"><span>§2 Onboarding</span><span class="v pass">PASS · 9 shots</span></div>
+            <div class="ev-row"><span>§3 Create project</span><span class="v pass">PASS · 6 shots</span></div>
+            <div class="ev-row"><span>§4 Invite member</span><span class="v pass">PASS · 5 shots</span></div>
+            <div class="ev-row"><span>§5 Checkout</span><span class="v fail">FAIL · 11 shots</span></div>
+            <div class="ev-row"><span>§6 Settings</span><span class="v pass">PASS · 7 shots</span></div>
+            <div class="ev-row"><span>§7 Log out</span><span class="v pass">PASS · 2 shots</span></div>
+          </div>
+        </div>
+        <div class="ev-note"><strong>§5 Checkout — investigation:</strong> coupon field rejects valid code <code>FREESHIP</code>. API returned 422; frontend shows generic error. Reproduction steps + network log attached. Likely cause: coupon validation expects uppercase, form sends raw input.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HOW -->
+  <section id="how">
+    <div class="wrap">
+      <div class="sec-label">§ Procedure</div>
+      <h2>It uses your app the way your users do — <em>and writes it all down.</em></h2>
+      <p class="sec-lede">No specs to write, no selectors to maintain. Point WitnessQA at your app, give it test credentials, and it maps and exercises every flow — then explores branch paths a scripted test would never think to try.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="n">STEP 01</div>
+          <h3>Discovery</h3>
+          <p>An agent opens your app cold and maps every screen, form, and flow it can reach — the way a new user would.</p>
+        </div>
+        <div class="step">
+          <div class="n">STEP 02</div>
+          <h3>Branch exploration</h3>
+          <p>Each decision point spawns a new agent path — a breadth-first search across your app's real state space, not a happy-path script.</p>
+        </div>
+        <div class="step">
+          <div class="n">STEP 03</div>
+          <h3>Evidence collection</h3>
+          <p>Screenshots at every step, console and network logs, reproduction sequences. Everything a developer needs, nothing they have to chase.</p>
+        </div>
+        <div class="step">
+          <div class="n">STEP 04</div>
+          <h3>Verdict &amp; investigation</h3>
+          <p>A signed report with pass/fail per flow. On failure, the agent keeps digging until it can name the likely cause.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMPARE -->
+  <section id="compare">
+    <div class="wrap">
+      <div class="sec-label">§ Distinction</div>
+      <h2>Code review catches bad code. <em>WitnessQA catches a broken product.</em></h2>
+      <p class="sec-lede">Deploy-day regressions, broken checkouts, dead forms — none of it shows up in a diff. It shows up when a customer emails you. Until now, catching it meant fragile E2E specs or a QA hire.</p>
+      <div class="compare">
+        <div class="col them">
+          <h3>The usual options</h3>
+          <ul>
+            <li>Manual QA: $25–50/hr, doesn't scale, skips edge cases when rushed</li>
+            <li>E2E suites: weeks of specs, constant selector maintenance, flaky red builds</li>
+            <li>Managed QA services: $60K–250K/year contracts, sales calls to get a price</li>
+            <li>Code-review AI: reads the code, never runs the product</li>
+          </ul>
+        </div>
+        <div class="col us">
+          <h3>WitnessQA</h3>
+          <ul>
+            <li>Zero specs to write or maintain — the agent discovers flows itself</li>
+            <li>Branch-search exploration covers paths scripts never encode</li>
+            <li>Every verdict backed by screenshots and logs, in a report a human reads</li>
+            <li>Failures come with an investigation, not just a red X</li>
+            <li>Transparent pricing. First run free, no call required</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRICING -->
+  <section id="pricing">
+    <div class="wrap">
+      <div class="sec-label">§ Fees</div>
+      <h2>Priced like software. <em>Not like a consulting firm.</em></h2>
+      <p class="sec-lede">Every plan includes evidence archives, signed reports, and failure investigations. Runs beyond your quota bill at $2 each — a fraction of fifteen minutes of manual QA.</p>
+      <div class="plans">
+        <div class="plan">
+          <div class="pname">Solo</div>
+          <div class="price">$149</div>
+          <div class="per">per month</div>
+          <ul>
+            <li>1 application</li>
+            <li>30 witness runs / month</li>
+            <li>Evidence archive + reports</li>
+            <li>Failure investigations</li>
+            <li>Email support</li>
+          </ul>
+          <a class="btn" href="#trial">Start free</a>
+        </div>
+        <div class="plan featured">
+          <div class="pname">Team</div>
+          <div class="price">$349</div>
+          <div class="per">per month</div>
+          <ul>
+            <li>3 applications</li>
+            <li>120 witness runs / month</li>
+            <li>Exhaustive branch exploration</li>
+            <li>Slack alerts on failure</li>
+            <li>3 seats included</li>
+          </ul>
+          <a class="btn" href="#trial">Start free</a>
+        </div>
+        <div class="plan">
+          <div class="pname">Scale</div>
+          <div class="price">$899</div>
+          <div class="per">per month</div>
+          <ul>
+            <li>Unlimited applications</li>
+            <li>400 runs / month, $2 overage</li>
+            <li>API + CI/CD webhooks</li>
+            <li>Unlimited seats</li>
+            <li>Priority support</li>
+          </ul>
+          <a class="btn" href="#trial">Start free</a>
+        </div>
+      </div>
+      <p class="pricing-note">All plans: first complete run free, no credit card. Cancel anytime. Annual billing: 2 months free.</p>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <div class="wrap">
+      <div class="sec-label">§ Questions, answered under oath</div>
+      <h2>Frequently examined questions</h2>
+      <p class="sec-lede" style="margin-bottom:32px"></p>
+      <div class="faq">
+        <details>
+          <summary>Is this another E2E testing tool?</summary>
+          <div class="faq-a">No. Traditional E2E tools execute scripts someone wrote and maintain. WitnessQA agents explore your live application, decide what to exercise, and produce evidence and verdicts. There are no specs to author and no selectors to repair.</div>
+        </details>
+        <details>
+          <summary>Is it deterministic enough to gate deploys?</summary>
+          <div class="faq-a">Each run is recorded end-to-end — screenshots, logs, and the exact sequence of actions — so any verdict is auditable and reproducible. Teams typically run WitnessQA on staging before release and treat the report as the release record.</div>
+        </details>
+        <details>
+          <summary>Is my application data safe?</summary>
+          <div class="faq-a">You provide dedicated test credentials and a staging or production-read-only environment. Evidence is stored encrypted, never used for training, and deleted on request. SOC 2 is on the roadmap.</div>
+        </details>
+        <details>
+          <summary>What happens when the agent finds a bug?</summary>
+          <div class="faq-a">It doesn't stop at a red X. The agent reproduces the failure, captures the network and console state at the moment of breakage, and writes a short investigation: what happened, where, and the likely cause — attached to the flow's section of the report.</div>
+        </details>
+        <details>
+          <summary>Which apps are supported?</summary>
+          <div class="faq-a">Web applications in any framework — if a browser can open it, a witness can test it. Native mobile is on the roadmap.</div>
+        </details>
+        <details>
+          <summary>Why "witness"?</summary>
+          <div class="faq-a">Because the agent doesn't have opinions about your code. It was there. It saw what happened, and it writes it down — with evidence.</div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="final" id="trial">
+    <div class="wrap">
+      <div class="sec-label">§ Summons</div>
+      <h2>Stop hearing about bugs from your customers.</h2>
+      <p class="sec-lede">One URL. One set of test credentials. One complete witnessed run on your real application — free, no card, report in minutes.</p>
+      <div class="cta-row">
+        <a class="btn solid" href="#">Run your first witness</a>
+        <a class="btn" href="#pricing">See pricing</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <span>WITNESSQA — functional QA agents. Est. 2026.</span>
+  <span><a href="#">Terms</a> · <a href="#">Privacy</a> · <a href="#">Status</a> · hello@witnessqa.com</span>
+</footer>
+
+</body>
+</html>

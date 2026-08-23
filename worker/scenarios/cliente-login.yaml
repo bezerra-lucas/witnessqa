@@ -1,0 +1,11 @@
+name: cliente-login
+app: https://cliente.async.dev.br
+steps:
+  - goto: /
+  - fill: {selector: "input[type=email], input[name=email]", value: "cliente.demo.evovision@async.dev.br"}
+  - fill: {selector: "input[type=password], input[name=password]", value: "17133324008"}
+  - click: "button[type=submit]"
+  - wait: 4000
+  - expectVisible: "body"
+checks:
+  - noBrokenImages
