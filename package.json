@@ -1,17 +1,37 @@
 {
   "name": "witnessqa",
   "version": "0.1.0",
-  "description": "Agentes de IA que testam seu app como um usuário real — QA funcional com evidências.",
+  "description": "AI agents that use your app like a real user and hand you the evidence. QA functional with screenshots, verdicts per flow, and BYOK root-cause analysis.",
   "type": "module",
   "bin": {
     "witnessqa": "./cli.mjs"
   },
-  "scripts": {
-    "start": "node cli.mjs"
+  "files": [
+    "cli.mjs",
+    "worker/src",
+    "README.md"
+  ],
+  "keywords": [
+    "qa",
+    "testing",
+    "e2e",
+    "playwright",
+    "ai-agents",
+    "code-review",
+    "evidence"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bezerra-lucas/witnessqa.git"
+  },
+  "homepage": "https://github.com/bezerra-lucas/witnessqa#readme",
+  "bugs": "https://github.com/bezerra-lucas/witnessqa/issues",
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "playwright-core": "^1.49.0",
     "yaml": "^2.6.0"
-  },
-  "keywords": ["qa", "testing", "e2e", "ai-agents", "playwright"]
+  }
 }
