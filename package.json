@@ -1,15 +1,20 @@
 {
   "name": "witnessqa",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI agents that use your app like a real user and hand you the evidence. QA functional with screenshots, verdicts per flow, and BYOK root-cause analysis.",
   "type": "module",
   "bin": {
     "witnessqa": "./cli.mjs"
   },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "witness": "node cli.mjs"
+  },
   "files": [
     "cli.mjs",
     "worker/src",
-    "README.md"
+    "README.md",
+    "action"
   ],
   "keywords": [
     "qa",
@@ -17,7 +22,6 @@
     "e2e",
     "playwright",
     "ai-agents",
-    "code-review",
     "evidence"
   ],
   "license": "MIT",
@@ -31,7 +35,9 @@
     "node": ">=18"
   },
   "dependencies": {
+    "pixelmatch": "^7.2.0",
     "playwright-core": "^1.49.0",
+    "pngjs": "^7.0.0",
     "yaml": "^2.6.0"
   }
 }

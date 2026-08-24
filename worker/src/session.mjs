@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import YAML from "yaml";
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser.mjs";
 
 const AUTH_DIR = ".witness/auth";
 
@@ -32,17 +32,29 @@ function die(m) {
   process.exit(1);
 }
 
-const browser = await chromium.launch({ headless: true });
+const browser = await launchBrowser();
 const context = await browser.newContext({ viewport: { width: 1440, height: 950 } });
 const page = await context.newPage();
 
 for (const [i, step] of scenario.steps.entries()) {
   if (step.goto !== undefined) {
     await page.goto(abs(step.goto), { waitUntil: "networkidle", timeout: 30_000 });
+    for (const s of ["#axeptio_btn_acceptAll", 'button:has-text("Aceitar")']) {
+      try {
+        const loc = page.locator(s).first();
+        if (await loc.isVisible({ timeout: 400 })) await loc.click({ timeout: 800 });
+      } catch { /* */ }
+    }
   } else if (step.fill) {
     await page.fill(step.fill.selector, expand(step.fill.value), { timeout: 10_000 });
   } else if (step.click) {
-    await page.click(step.click, { timeout: 10_000 });
+    if (typeof step.click === "object" && step.click.text) {
+      await page.getByRole("button", { name: step.click.text }).first().click({ timeout: 8000 }).catch(async () => {
+        await page.getByText(step.click.text, { exact: false }).first().click({ timeout: 8000 });
+      });
+    } else {
+      await page.click(typeof step.click === "string" ? step.click : step.click.selector, { timeout: 10_000 });
+    }
   } else if (step.wait) {
     await page.waitForTimeout(Number(step.wait) || 1000);
   } else if (step.expectVisible || step.expectUrl || step.expectText) {

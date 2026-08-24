@@ -1,0 +1,10 @@
+name: fixture-cart
+what: valida o checkout da fixture
+steps:
+  - goto: /cart.html
+  - expectVisible: ".cart"
+  - expectText: Pagar
+  - click: "#pay"
+  - expectText: Pedido confirmado
+checks:
+  - noBrokenImages

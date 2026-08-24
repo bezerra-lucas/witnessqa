@@ -1,0 +1,7 @@
+viewport:
+  width: 1440
+  height: 950
+targets:
+  - name: app
+    url: https://meuapp.com
+    auth: .witness/auth/login.json

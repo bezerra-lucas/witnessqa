@@ -2,85 +2,102 @@
 
 **AI agents that use your app like a real user — and hand you the evidence.**
 
-Agents open your web app, walk every flow, take screenshots at every step, and deliver a signed report with a verdict per feature. When something breaks, they find out why.
+The product is a **coverage engine**: discover every screen, assert real content, hand you one self-contained dossier.
 
 ```
-$ npx witnessqa init
-$ witnessqa run
+$ witnessqa login
+$ witnessqa cover
 
-  ▶ smoke-home
-    ✓ PASS (2 steps)
+cover → admin
+cover → cliente
+  ✓ Dashboard
+  ✓ Unidades
+  …
 
-  relatório: .witness/runs/1787457548157/REPORT.md
+laudo: http://127.0.0.1:8765/REPORT.html
 ```
-
-## Why
-
-Code review tools read your diff. Traditional E2E tests demand fragile specs. Neither tells you **"does the app actually work for a human right now?"**
-
-WitnessQA agents do:
-
-- **Open your app like a user** — real browser, real clicks, real forms
-- **Screenshot every step** — evidence, not promises
-- **Verdict per flow** — a report a founder can read: "checkout passed, signup failed because X"
-- **Root-cause investigation** — on failure, an LLM reads the console errors + HTML + screenshots and tells you if it's your bug or a stale selector
-- **Graph exploration** — point it at a URL and it discovers your app's flows by itself (BFS over states), generating regression scenarios per branch
 
 ## Quick start
 
+Chrome/Chromium on the machine (or `npx playwright install chromium`).
+
 ```bash
-npx witnessqa init        # creates witness.config.yaml + example scenario
-witnessqa run             # runs every scenario in ./witness/
-witnessqa list            # shows discovered scenarios
-witnessqa explore https://yourapp.com   # AI discovery of flows → scenarios
+npx witnessqa init
+# edit witness.config.yaml → targets + auth
+witnessqa login witness/login.yaml
+witnessqa cover                 # discover + run + open the report
+witnessqa report                # serve the latest dossier
+witnessqa diff <run-a> <run-b>  # verdict delta between two runs
 ```
 
-Scenarios are plain YAML:
+`witness.config.yaml`:
 
 ```yaml
-name: checkout-smoke
-app: https://myshop.com
-steps:
-  - goto: /products
-  - click: "text=Add to cart"
-  - expectVisible: ".cart-badge"
-checks:
-  - noBrokenImages
-  - noConsoleErrors
+viewport: { width: 1440, height: 950 }
+targets:
+  - name: admin
+    url: https://admin.example.com
+    auth: .witness/auth/login.json
 ```
 
-### Bring Your Own Key (free forever)
+Manual YAML still works (`witnessqa run`). Prefer `cover` — it writes one scenario per discovered screen with heading + visible-error asserts, not `expectVisible: body`.
 
-The root-cause investigator uses **your own LLM key**. No account, no middleman:
+`$WITNESS_EMAIL` / `$WITNESS_PASSWORD` expand in `fill.value`.
+
+### BYOK (free)
 
 ```bash
-export WITNESS_KEY="sk-or-v1-..."          # OpenRouter / OpenAI / any OpenAI-compatible
-export WITNESS_MODEL="openai/gpt-4o-mini"  # optional
-witnessqa run
+export WITNESS_KEY="sk-or-v1-..."
+export WITNESS_MODEL="openai/gpt-4o-mini"
 ```
 
-No key? Everything still works — you just skip the cause analysis.
+No key: runs still work, skip cause analysis.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `witnessqa init` | Scaffold config + first scenario |
-| `witnessqa run [names...]` | Run scenarios (all by default) |
-| `witnessqa explore <url>` | Discover flows as a graph, generate regression scenarios |
+| `witnessqa cover [url]` | Discover routes (nav + clicks + wizards), generate YAML, run, serve the dossier |
+| `witnessqa login [file]` | Save Playwright storageState |
+| `witnessqa run [names…]` | Run existing YAML |
+| `witnessqa report [runs…]` | Pack + serve `http://127.0.0.1:8765/REPORT.html` |
+| `witnessqa diff a b` | Compare verdicts across two runs |
+| `witnessqa vdiff a b` | Pixel visual-diff of screenshots |
+| `witnessqa notify [run]` | Discord/Slack webhook on verdict |
 | `witnessqa list` | List scenarios |
-| `witnessqa report` | Open the latest report |
 
-## How exploration works
+## GitHub Action
 
-The explorer models your app as a graph: nodes are screens (URL + DOM signature), edges are actions (`goto`, button clicks, portal forms). It walks the graph best-first (shortest path to each new screen before deep branches), spawns an isolated browser context per branch, and emits one regression scenario per meaningful path. Budget-controlled: `--max-nodes`, depth cap.
+```yaml
+- uses: bezerra-lucas/witnessqa@main
+  with:
+    mode: cover
+    base-url: https://staging.example.com
+    auth: .witness/auth/login.json
+    api-key: ${{ secrets.OPENROUTER_KEY }}
+    discord-webhook: ${{ secrets.DISCORD_WEBHOOK }}
+```
+
+Job fails only on **FAIL**. Artifact = full dossier. PR gets a comment.
+
+Docker (same CLI, CI/cloud):
+
+```bash
+docker build -t witnessqa .
+docker run --rm -v $PWD:/work witnessqa cover
+```
 
 ## Roadmap
 
-- [ ] Cloud worker (1-click runs, no local setup)
-- [ ] Dashboard with evidence timeline
-- [ ] Slack/Discord alerts on verdict change
-- [ ] Visual diff between runs
+- [x] Cover engine (discover → assert → one dossier)
+- [x] Human titles + grouped index + lightbox
+- [x] Next.js noise filter (RSC abort, React #418)
+- [x] Verdict diff between runs
+- [x] Pixel visual-diff (`vdiff`)
+- [x] Slack/Discord webhook (`notify` + Action input)
+- [x] GitHub Action cover + PR comment + CI
+- [x] Docker runner (cloud-shaped, no SaaS yet)
+- [ ] Hosted dashboard / 1-click cloud account
 
 ## License
 

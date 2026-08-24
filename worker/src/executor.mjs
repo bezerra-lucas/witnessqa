@@ -1,72 +1,115 @@
 /**
  * Executor de um cenário: abre o browser, roda steps, captura evidências.
- * Padrão de evidência herdado dos cenários QA do domod:
- *   screenshot por step + checks (broken images, console errors, geometry).
+ *
+ * Lições dos laudos v3 (admin-02 Target crashed):
+ *   - screenshot fullPage em dashboard pesado derruba o Chromium
+ *   - wait longo + textContent depois do crash vira FAIL sem causa
+ *   - page.html não era dumpado → BYOK sem contexto
+ *   - expectText string vs objeto
  */
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser.mjs";
+import { expandEnv, isCrashDetail, normalizeExpectText, isNoiseMessage, isNoiseNetwork } from "./classify.mjs";
 
-export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, authFile }) {
+const NOISE_CONSOLE = /Failed to load resource:.*(favicon|hot-update|\.map|status of 404)|Download the React DevTools|third-party cookie will be blocked/i;
+
+export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, authFile, headed } = {}) {
   mkdirSync(evidenceDir, { recursive: true });
   const vp = scenario.viewport ?? viewport ?? { width: 1440, height: 950 };
   const auth = scenario.auth ?? authFile;
+  const appBase = scenario.app ?? baseUrl ?? "";
 
   const result = {
     name: scenario.name,
+    what: scenario.what ?? "",
     verdict: "pass",
     steps: [],
     consoleErrors: [],
     pageErrors: [],
+    networkErrors: [],
     brokenImages: [],
     screenshots: [],
     failure: null,
     startedAt: new Date().toISOString(),
   };
 
-  const browser = await chromium.launch({ headless: true });
+  let browser;
+  try {
+    browser = await launchBrowser({ headless: headed !== true });
+  } catch (err) {
+    result.verdict = "blocked";
+    result.failure = { type: "browser", message: String(err).slice(0, 400) };
+    result.finishedAt = new Date().toISOString();
+    writeFileSync(join(evidenceDir, "result.json"), JSON.stringify(result, null, 2));
+    return result;
+  }
+
   const contextOpts = { viewport: vp };
   if (auth && existsSync(auth)) contextOpts.storageState = auth;
   const context = await browser.newContext(contextOpts);
-  const page = await context.newPage();
+  let page = await context.newPage();
+
   page.on("console", (m) => {
-    if (m.type() === "error") result.consoleErrors.push(m.text());
+    if (m.type() !== "error") return;
+    const t = m.text();
+    const loc = m.location()?.url ?? "";
+    if (NOISE_CONSOLE.test(t) || isNoiseMessage(t) || /favicon|\.map(\?|$)|hot-update/.test(loc + " " + t)) return;
+    result.consoleErrors.push(t);
   });
-  page.on("pageerror", (e) => result.pageErrors.push(String(e)));
+  page.on("pageerror", (e) => {
+    const t = String(e);
+    if (isNoiseMessage(t)) return;
+    result.pageErrors.push(t);
+  });
+  page.on("requestfailed", (req) => {
+    const url = req.url();
+    const line = `${req.failure()?.errorText ?? "failed"} ${url}`.slice(0, 240);
+    if (isNoiseNetwork(line) || /favicon|hot-update|\.map(\?|$)/.test(url)) return;
+    result.networkErrors.push(line);
+  });
+  page.on("response", (res) => {
+    if (res.status() < 400) return;
+    const url = res.url();
+    const line = `${res.status()} ${url}`.slice(0, 240);
+    if (isNoiseNetwork(line) || /favicon|hot-update|\.map(\?|$)/.test(url)) return;
+    result.networkErrors.push(line);
+  });
 
   try {
     for (const [i, step] of scenario.steps.entries()) {
-      const entry = await runStep(page, step, i, { evidenceDir, baseUrl, result });
+      if (page.isClosed()) {
+        page = await context.newPage();
+      }
+      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result });
       result.steps.push(entry);
       if (!entry.ok) {
-        result.verdict = "fail";
-        result.failure = { stepIndex: i, step, detail: entry.detail };
+        result.verdict = isCrashDetail(entry.detail) ? "blocked" : "fail";
+        result.failure = { stepIndex: i, step, detail: entry.detail, type: result.verdict === "blocked" ? "crash" : "step" };
+        await dumpPage(page, evidenceDir);
         break;
       }
     }
 
     if (result.verdict === "pass") {
-      // pós-checks globais (padrão domod)
       result.brokenImages = await findBrokenImages(page);
       if (scenario.checks?.includes("noBrokenImages") && result.brokenImages.length) {
         result.verdict = "fail";
         result.failure = { type: "brokenImages", images: result.brokenImages };
       }
-      if (
-        scenario.checks?.includes("noConsoleErrors") &&
-        result.consoleErrors.length &&
-        !result.failure
-      ) {
-        result.verdict = "warn"; // erro de console sozinho não reprova, sinaliza
+      if (scenario.checks?.includes("noConsoleErrors") && result.consoleErrors.length && !result.failure) {
+        result.verdict = "warn";
         result.failure = { type: "consoleErrors", errors: result.consoleErrors.slice(0, 5) };
       }
+      await dumpPage(page, evidenceDir);
     }
   } catch (err) {
-    result.verdict = "blocked";
+    result.verdict = isCrashDetail(err) ? "blocked" : "blocked";
     result.failure = { type: "exception", message: String(err).slice(0, 500) };
-    await safeShot(page, join(evidenceDir, `crash-step.png`), result);
+    await safeShot(page, join(evidenceDir, "crash-step.png"), result);
+    await dumpPage(page, evidenceDir);
   } finally {
-    await browser.close();
+    await browser.close().catch(() => {});
     result.finishedAt = new Date().toISOString();
   }
 
@@ -75,16 +118,40 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
 }
 
 async function runStep(page, step, index, { evidenceDir, baseUrl, result }) {
-  const entry = { index, step, ok: true, detail: "" };
+  const entry = { index, step: sanitizeStep(step), ok: true, detail: "" };
   const shotName = `step-${String(index).padStart(2, "0")}.png`;
   try {
+    if (page.isClosed()) throw new Error("Target closed: page was closed before step");
+
     if (step.goto !== undefined) {
-      const url = step.goto.startsWith("http") ? step.goto : `${baseUrl}${step.goto}`;
-      await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+      const url = resolveUrl(step.goto, baseUrl);
+      await gotoResilient(page, url);
+      await dismissOverlays(page);
     } else if (step.fill) {
-      await page.fill(step.fill.selector, step.fill.value, { timeout: 10_000 });
+      const selector = step.fill.selector ?? step.fill[0];
+      const value = expandEnv(step.fill.value ?? step.fill[1] ?? "");
+      try {
+        await page.fill(selector, value, { timeout: 10_000 });
+      } catch (err) {
+        if (await leftAuthSurface(page, step)) {
+          entry.skipped = true;
+          entry.detail = "sessão já autenticada — campo de login não existe (redirect)";
+        } else {
+          throw err;
+        }
+      }
     } else if (step.click) {
-      await page.click(step.click, { timeout: 10_000 });
+      try {
+        await clickSmart(page, step.click);
+        await page.waitForLoadState("domcontentloaded", { timeout: 8_000 }).catch(() => {});
+      } catch (err) {
+        if (await leftAuthSurface(page, step)) {
+          entry.skipped = true;
+          entry.detail = "sessão já autenticada — botão de login não existe (redirect)";
+        } else {
+          throw err;
+        }
+      }
     } else if (step.expectUrl) {
       const want = step.expectUrl;
       const cur = page.url();
@@ -100,13 +167,43 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result }) {
         entry.detail = `seletor visível não encontrado: ${step.expectVisible}`;
       }
     } else if (step.wait) {
-      await page.waitForTimeout(Number(step.wait) || 1000);
-    } else if (step.expectText) {
-      const { text, selector } = step.expectText;
-      const body = await page.textContent(selector ?? "body", { timeout: 8_000 });
-      if (!body?.includes(text)) {
+      const ms = Math.min(Number(step.wait) || 1000, 15_000);
+      await page.waitForTimeout(ms);
+    } else if (step.expectText !== undefined) {
+      const spec = normalizeExpectText(step.expectText);
+      if (!spec) {
         entry.ok = false;
-        entry.detail = `texto "${text}" não encontrado em ${selector ?? "body"}`;
+        entry.detail = `expectText inválido: ${JSON.stringify(step.expectText)}`;
+      } else {
+        const body = await page.textContent(spec.selector, { timeout: 8_000 });
+        if (!body?.includes(spec.text)) {
+          entry.ok = false;
+          entry.detail = `texto "${spec.text}" não encontrado em ${spec.selector}`;
+        }
+      }
+    } else if (step.expectNoText !== undefined) {
+      const spec = normalizeExpectText(step.expectNoText);
+      if (!spec) {
+        entry.ok = false;
+        entry.detail = `expectNoText inválido: ${JSON.stringify(step.expectNoText)}`;
+      } else {
+        const visible = await page.evaluate((text) => {
+          const hit = [...document.querySelectorAll("body *")].find((el) => {
+            if (el.children.length > 3) return false;
+            const t = (el.innerText || "").trim();
+            if (!t || t.length > 400) return false;
+            if (!t.includes(text)) return false;
+            const s = getComputedStyle(el);
+            if (s.display === "none" || s.visibility === "hidden" || Number(s.opacity) === 0) return false;
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          });
+          return Boolean(hit);
+        }, spec.text);
+        if (visible) {
+          entry.ok = false;
+          entry.detail = `texto proibido visível: "${spec.text}"`;
+        }
       }
     } else {
       entry.ok = false;
@@ -123,22 +220,146 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result }) {
   return entry;
 }
 
-async function findBrokenImages(page) {
+function resolveUrl(target, baseUrl) {
+  if (typeof target !== "string") return String(target);
+  if (/^https?:\/\//i.test(target)) return target;
+  if (!baseUrl) return target;
+  return `${String(baseUrl).replace(/\/$/, "")}${target.startsWith("/") ? target : `/${target}`}`;
+}
+
+async function clickSmart(page, spec) {
+  if (typeof spec === "string") {
+    await page.click(spec, { timeout: 10_000 });
+    return;
+  }
+  if (spec?.text) {
+    await page.getByRole("button", { name: spec.text }).first().click({ timeout: 6_000 }).catch(async () => {
+      await page.getByText(spec.text, { exact: false }).first().click({ timeout: 6_000 });
+    });
+    return;
+  }
+  if (spec?.selector) {
+    await page.click(spec.selector, { timeout: 10_000 });
+    return;
+  }
+  throw new Error(`click inválido: ${JSON.stringify(spec)}`);
+}
+
+async function dismissOverlays(page) {
+  const sels = [
+    "#axeptio_btn_acceptAll",
+    "#onetrust-accept-btn-handler",
+    'button:has-text("Aceitar todos")',
+    'button:has-text("Aceitar")',
+    'button:has-text("Accept all")',
+    'button:has-text("Accept")',
+    '[aria-label="Close"]',
+    'button:has-text("Fechar")',
+  ];
+  for (const s of sels) {
+    try {
+      const loc = page.locator(s).first();
+      if (await loc.isVisible({ timeout: 400 })) {
+        await loc.click({ timeout: 800 });
+        return;
+      }
+    } catch {
+      /* próximo */
+    }
+  }
+}
+
+async function leftAuthSurface(page, step) {
+  if (page.isClosed()) return false;
+  const url = page.url();
+  const looksLikeAuthStep = /login|signin|email|password|senha/i.test(
+    JSON.stringify(step ?? {}) + url,
+  );
+  if (!looksLikeAuthStep) return false;
+  return !/login|signin|access|entrar/i.test(url);
+}
+
+async function gotoResilient(page, url) {
   try {
-    return await page.evaluate(() =>
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  } catch (err) {
+    if (isCrashDetail(err)) throw err;
+    await page.goto(url, { waitUntil: "load", timeout: 30_000 });
+  }
+  await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
+}
+
+function sanitizeStep(step) {
+  if (!step || typeof step !== "object") return step;
+  const copy = { ...step };
+  if (copy.fill?.value) copy.fill = { ...copy.fill, value: redact(copy.fill.value) };
+  return copy;
+}
+
+function redact(v) {
+  if (typeof v !== "string") return v;
+  if (/^\$[A-Z_]+$/.test(v)) return v;
+  if (v.length > 4 && /pass|secret|token|key/i.test(v)) return "••••";
+  return v;
+}
+
+async function findBrokenImages(page) {
+  if (page.isClosed()) return [];
+  try {
+    await page.evaluate(() =>
+      Promise.all(
+        [...document.images].map(
+          (img) =>
+            img.complete ||
+            new Promise((r) => {
+              img.addEventListener("load", r, { once: true });
+              img.addEventListener("error", r, { once: true });
+              setTimeout(r, 4000);
+            }),
+        ),
+      ),
+    );
+    const candidates = await page.evaluate(() =>
       Array.from(document.images)
-        .filter((img) => img.naturalWidth === 0 && img.src)
+        .filter((img) => img.naturalWidth === 0 && img.src && !img.src.startsWith("data:"))
         .map((img) => img.currentSrc || img.src),
     );
+    const broken = [];
+    for (const src of [...new Set(candidates)].slice(0, 12)) {
+      try {
+        const res = await page.request.get(src, { timeout: 8000 });
+        if (res.status() >= 400) broken.push(src);
+      } catch {
+        broken.push(src);
+      }
+    }
+    return broken;
   } catch {
     return [];
   }
 }
 
-async function safeShot(page, path, result) {
+async function dumpPage(page, evidenceDir) {
+  if (!page || page.isClosed()) return;
   try {
-    await page.screenshot({ path, fullPage: true });
+    writeFileSync(join(evidenceDir, "page.html"), await page.content());
+    writeFileSync(join(evidenceDir, "url.txt"), page.url());
   } catch {
-    /* página pode ter crashado — segue */
+    /* página pode ter crashado */
+  }
+}
+
+async function safeShot(page, path, result) {
+  if (!page || page.isClosed()) return;
+  try {
+    await page.screenshot({ path, fullPage: false, timeout: 8_000 });
+    return;
+  } catch {
+    /* fullPage costuma OOM em dashboards — já evitamos; último recurso */
+  }
+  try {
+    await page.screenshot({ path, fullPage: false, timeout: 5_000, clip: { x: 0, y: 0, width: 1280, height: 720 } });
+  } catch {
+    /* segue sem evidência visual */
   }
 }

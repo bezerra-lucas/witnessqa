@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Witness Shop</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 640px; margin: 40px auto; }
+    .cart { border: 2px solid #17150F; padding: 16px; }
+    .ok { color: #0E6B3D; }
+    .err { color: #B3261E; display: none; }
+    button { padding: 8px 16px; }
+  </style>
+</head>
+<body>
+  <h1>Witness Shop</h1>
+  <p id="lede">A tiny store used as a WitnessQA fixture.</p>
+  <a href="/cart.html">Go to cart</a>
+  <button id="add" type="button">Add to cart</button>
+  <span class="cart-badge" hidden>0</span>
+  <script>
+    document.getElementById('add').addEventListener('click', () => {
+      const b = document.querySelector('.cart-badge');
+      b.hidden = false;
+      b.textContent = String(Number(b.textContent || 0) + 1);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+name: fixture-home
+what: valida a home da loja fixture
+steps:
+  - goto: /
+  - expectVisible: h1
+  - expectText: Witness Shop
+  - click: "#add"
+  - expectVisible: ".cart-badge"
+checks:
+  - noBrokenImages

@@ -1,0 +1,5 @@
+name: fixture-missing
+what: deve FALHAR — texto que não existe
+steps:
+  - goto: /
+  - expectText: este texto nao existe no html

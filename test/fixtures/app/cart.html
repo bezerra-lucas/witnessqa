@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cart — Witness Shop</title>
+</head>
+<body>
+  <h1>Cart</h1>
+  <div class="cart">
+    <p>1 × notebook</p>
+    <button id="pay" type="button">Pagar</button>
+    <p class="ok" id="done" hidden>Pedido confirmado</p>
+    <p class="err" id="fail">cupom inválido</p>
+  </div>
+  <a href="/">back</a>
+  <script>
+    document.getElementById('pay').addEventListener('click', () => {
+      document.getElementById('done').hidden = false;
+    });
+  </script>
+</body>
+</html>
