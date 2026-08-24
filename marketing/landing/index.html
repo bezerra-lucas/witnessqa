@@ -161,10 +161,11 @@
       </a>
       <div class="navlinks">
         <a href="#how">How it works</a>
+        <a href="#install">Install</a>
         <a href="#compare">Why different</a>
         <a href="#pricing">Pricing</a>
         <a href="#faq">FAQ</a>
-        <a class="btn" href="#trial">Run your first witness</a>
+        <a class="btn" href="#install">Run your first witness</a>
       </div>
     </nav>
   </div>
@@ -178,10 +179,10 @@
       <h1>Your app, witnessed. <em>Evidence,</em> not promises.</h1>
       <p class="lede">WitnessQA agents open your web application like a real user — log in, click through every flow, and hand you a signed report: screenshots, console logs, and a pass/fail verdict per feature. When something breaks, they investigate why.</p>
       <div class="cta-row">
-        <a class="btn solid" href="#trial">Run your first witness — free</a>
+        <a class="btn solid" href="#install">Install the CLI</a>
         <a class="btn" href="#how">See how it works</a>
       </div>
-      <p class="fineprint">No credit card. One complete run on your real app. Report in minutes.</p>
+      <p class="fineprint">Open source. BYOK. Chrome already on your machine is enough.</p>
 
       <!-- report mock -->
       <div class="evidence">
@@ -287,7 +288,7 @@
             <li>Failure investigations</li>
             <li>Email support</li>
           </ul>
-          <a class="btn" href="#trial">Start free</a>
+          <a class="btn" href="#install">Start with the CLI</a>
         </div>
         <div class="plan featured">
           <div class="pname">Team</div>
@@ -300,7 +301,7 @@
             <li>Slack alerts on failure</li>
             <li>3 seats included</li>
           </ul>
-          <a class="btn" href="#trial">Start free</a>
+          <a class="btn" href="#install">Start with the CLI</a>
         </div>
         <div class="plan">
           <div class="pname">Scale</div>
@@ -313,10 +314,27 @@
             <li>Unlimited seats</li>
             <li>Priority support</li>
           </ul>
-          <a class="btn" href="#trial">Start free</a>
+          <a class="btn" href="#install">Start with the CLI</a>
         </div>
       </div>
       <p class="pricing-note">All plans: first complete run free, no credit card. Cancel anytime. Annual billing: 2 months free.</p>
+    </div>
+  </section>
+
+  <!-- INSTALL -->
+  <section id="install">
+    <div class="wrap">
+      <div class="sec-label">§ Install</div>
+      <h2>On your machine in <em>four commands.</em></h2>
+      <p class="sec-lede">The CLI is open source and free. Cloud (managed runs, dashboard) is the paid product — same report, no local setup. Start here.</p>
+      <div class="faq" style="padding:22px 24px;font-family:var(--mono);font-size:14px;line-height:1.8">
+        <div>npx witnessqa init</div>
+        <div>npx playwright install chromium &nbsp;<span style="opacity:.55"># if you don't have Chrome</span></div>
+        <div>witnessqa login</div>
+        <div>witnessqa cover</div>
+        <div>witnessqa report</div>
+      </div>
+      <p class="pricing-note" style="margin-top:16px">GitHub: <a href="https://github.com/bezerra-lucas/witnessqa">bezerra-lucas/witnessqa</a> · BYOK via <code>WITNESS_KEY</code></p>
     </div>
   </section>
 
@@ -360,9 +378,9 @@
     <div class="wrap">
       <div class="sec-label">§ Summons</div>
       <h2>Stop hearing about bugs from your customers.</h2>
-      <p class="sec-lede">One URL. One set of test credentials. One complete witnessed run on your real application — free, no card, report in minutes.</p>
+      <p class="sec-lede">One URL. One set of test credentials. One complete witnessed run on your real application — local CLI today, cloud when you want convenience.</p>
       <div class="cta-row">
-        <a class="btn solid" href="#">Run your first witness</a>
+        <a class="btn solid" href="#install">Install the CLI</a>
         <a class="btn" href="#pricing">See pricing</a>
       </div>
     </div>

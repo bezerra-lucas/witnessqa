@@ -9,7 +9,7 @@
  *
  * Uso: node src/cover.mjs <url> [--auth file] [--out dir] [--max 80]
  */
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { launchBrowser } from "./browser.mjs";
 
@@ -184,6 +184,23 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
   const visited = new Set();
   const pages = [];
   const edges = [];
+  const prevFile = join(outDir, "coverage.json");
+  if (existsSync(prevFile)) {
+    try {
+      const prev = JSON.parse(readFileSync(prevFile, "utf8"));
+      for (const p of prev.pages ?? []) {
+        if (p.url) {
+          visited.add(norm(p.url));
+          pages.push(p);
+        }
+      }
+      for (const e of prev.edges ?? []) edges.push(e);
+      for (const e of edges) {
+        const to = e.to && norm(e.to);
+        if (to && !visited.has(to) && !queue.includes(to)) queue.push(to);
+      }
+    } catch { /* grafo novo */ }
+  }
 
   while (queue.length && visited.size < maxNodes) {
     const url = queue.shift();

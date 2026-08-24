@@ -47,6 +47,8 @@ const baseUrl = arg("--base-url", "");
 const outDir = arg("--out", join("runs", String(Date.now())));
 const authFile = arg("--auth", "");
 const headed = process.argv.includes("--headed");
+const force = process.argv.includes("--force");
+const jobs = Math.max(1, Number(arg("--jobs", "1")) || 1);
 mkdirSync(outDir, { recursive: true });
 
 const files = collectFiles(rawTargets.length ? rawTargets : ["."]);
@@ -58,9 +60,17 @@ if (!files.length) {
 console.log(`WitnessQA — ${files.length} cenário(s) contra ${baseUrl || "(urls dos cenários)"}\n`);
 
 const results = [];
-for (const file of files) {
+
+async function runOne(file) {
   const scenario = parseScenario(readFileSync(file, "utf8"), yaml);
   const evidenceDir = join(outDir, basename(file).replace(/\.(ya?ml|json)$/, ""));
+  const prev = join(evidenceDir, "result.json");
+  if (!force && existsSync(prev)) {
+    const result = JSON.parse(readFileSync(prev, "utf8"));
+    console.log(`▶ ${scenario.name}\n  · resume ${result.verdict?.toUpperCase?.() ?? "?"}`);
+    results.push(result);
+    return;
+  }
   console.log(`▶ ${scenario.name}`);
   const result = await runScenario(scenario, { evidenceDir, baseUrl, authFile: authFile || undefined, headed });
   const icon = result.verdict === "pass" ? "✓" : result.verdict === "blocked" ? "■" : "✗";
@@ -76,7 +86,19 @@ for (const file of files) {
     }
   }
   results.push(result);
+  if (results.length % 10 === 0) {
+    try { packRun(outDir); } catch { /* pack parcial */ }
+  }
 }
+
+const queue = [...files];
+const workers = Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+  while (queue.length) {
+    const file = queue.shift();
+    if (file) await runOne(file);
+  }
+});
+await Promise.all(workers);
 
 const failed = results.filter((r) => r.verdict === "fail");
 const blocked = results.filter((r) => r.verdict === "blocked");

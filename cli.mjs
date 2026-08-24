@@ -220,9 +220,10 @@ async function main() {
 
     case "cover": {
       const cfg = loadConfig();
-      const out = flagValue(flags, rest, "--out") ?? join(RUNS_DIR, "cover", String(Date.now()));
+      const out = flagValue(flags, rest, "--out") ?? join(RUNS_DIR, "cover-graph");
       mkdirSync(out, { recursive: true });
       const max = flagValue(flags, rest, "--max") ?? "80";
+      const jobs = flagValue(flags, rest, "--jobs") ?? "2";
       const discoverOnly = rest.includes("--discover-only");
       const targets = [];
       if (pos[0]) {
@@ -252,8 +253,9 @@ async function main() {
       if (code !== 0) process.exit(code);
 
       if (!discoverOnly) {
-        const runOut = join(RUNS_DIR, `cover-run-${Date.now()}`);
-        await runNode(workerFile("worker.mjs"), [join(out, "witness"), "--out", runOut]);
+        const runOut = join(RUNS_DIR, "cover-live");
+        mkdirSync(runOut, { recursive: true });
+        await runNode(workerFile("worker.mjs"), [join(out, "witness"), "--out", runOut, "--jobs", String(jobs)]);
         await publishReport(runOut, rest);
       } else {
         console.log(`\ncobertura + YAMLs em ${out}/witness`);
