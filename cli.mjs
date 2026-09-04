@@ -66,11 +66,21 @@ function workerFile(name) {
 
 function runNode(script, args, { inherit = true } = {}) {
   return new Promise((resolvePromise) => {
+    let settled = false;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise(code);
+    };
     const child = spawn(process.execPath, [script, ...args], {
       stdio: inherit ? "inherit" : "pipe",
       env: process.env,
     });
-    child.on("exit", (code) => resolvePromise(code ?? 0));
+    child.once("error", (error) => {
+      console.error(`falha ao iniciar processo: ${error.message}`);
+      finish(1);
+    });
+    child.once("exit", (code) => finish(code ?? 1));
   });
 }
 
@@ -255,8 +265,9 @@ async function main() {
       if (!discoverOnly) {
         const runOut = process.env.WITNESS_RUN_OUT || join(RUNS_DIR, "cover-live");
         mkdirSync(runOut, { recursive: true });
-        await runNode(workerFile("worker.mjs"), [join(out, "witness"), "--out", runOut, "--jobs", String(jobs)]);
+        const workerCode = await runNode(workerFile("worker.mjs"), [join(out, "witness"), "--out", runOut, "--jobs", String(jobs)]);
         await publishReport(runOut, rest);
+        process.exitCode = workerCode;
       } else {
         console.log(`\ncobertura + YAMLs em ${out}/witness`);
       }
@@ -327,6 +338,11 @@ async function publishReport(dir, rest = []) {
   if (!existsSync(join(dir, "REPORT.html"))) {
     const code = await runNode(workerFile("packer.mjs"), [dir]);
     if (code !== 0) die("falha ao gerar o laudo");
+  }
+  if (rest.includes("--no-serve")) {
+    const report = resolve(dir, "REPORT.html");
+    console.log(report);
+    return report;
   }
   const url = serveReport(dir);
   console.log(url);

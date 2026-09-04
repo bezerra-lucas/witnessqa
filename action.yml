@@ -67,6 +67,7 @@ runs:
 
     - name: Run WitnessQA
       id: run
+      if: ${{ always() }}
       shell: bash
       env:
         WITNESS_KEY: ${{ inputs.api-key }}
@@ -81,8 +82,12 @@ runs:
       run: |
         ACTION_ROOT=$(mktemp -d "${RUNNER_TEMP:-/tmp}/witnessqa-action.XXXXXX")
         RUN_DIR="$ACTION_ROOT/run"
+        ARTIFACT_PATH="$ACTION_ROOT/upload"
         export WITNESS_RUN_OUT="$RUN_DIR"
         export WITNESS_COVER_OUT="$ACTION_ROOT/graph"
+        printf 'report-path=\n' >> "$GITHUB_OUTPUT"
+        printf 'artifact-path=%s\n' "$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+        printf 'verdict=fail\n' >> "$GITHUB_OUTPUT"
         set +e
         MODE="$INPUT_MODE"
         AUTH="$INPUT_AUTH"
@@ -91,7 +96,7 @@ runs:
           ARGS=()
           if [ -n "$BASE" ]; then ARGS+=("$BASE"); fi
           if [ -n "$AUTH" ]; then ARGS+=(--auth "$AUTH"); fi
-          witnessqa cover "${ARGS[@]}" --no-open
+          witnessqa cover "${ARGS[@]}" --no-open --no-serve
         else
           ARGS=("$INPUT_SCENARIOS")
           if [ -n "$BASE" ]; then ARGS+=(--base-url "$BASE"); fi
@@ -99,25 +104,35 @@ runs:
           witnessqa run "${ARGS[@]}"
         fi
         CODE=$?
-        set -e
-        printf 'report-path=%s/REPORT.html\n' "$RUN_DIR" >> "$GITHUB_OUTPUT"
-        if [ "$CODE" -eq 0 ]; then VERDICT=pass
-        elif [ "$CODE" -eq 2 ]; then VERDICT=blocked
-        else VERDICT=fail
+        VERDICT=$(node "${{ github.action_path }}/worker/src/verdict.mjs" from-exit "$CODE")
+        case "$VERDICT" in
+          pass|fail|blocked) ;;
+          *) VERDICT=fail ;;
+        esac
+        node "${{ github.action_path }}/worker/src/notify.mjs" "$RUN_DIR" || true
+        FINAL_VERDICT=$(node "${{ github.action_path }}/worker/src/action-artifact.mjs" "$RUN_DIR" "$ARTIFACT_PATH" "$VERDICT")
+        case "$FINAL_VERDICT" in
+          pass|fail|blocked) VERDICT="$FINAL_VERDICT" ;;
+          *) VERDICT=fail ;;
+        esac
+        if [ ! -e "$ARTIFACT_PATH/REPORT.html" ] && [ ! -e "$ARTIFACT_PATH/EXPORT-FAILED.txt" ]; then
+          VERDICT=fail
+          mkdir -p "$ARTIFACT_PATH"
+          printf 'WitnessQA could not prepare the sanitized evidence bundle.\nVerdict: fail\n' > "$ARTIFACT_PATH/EXPORT-FAILED.txt"
         fi
         printf 'verdict=%s\n' "$VERDICT" >> "$GITHUB_OUTPUT"
-        node "${{ github.action_path }}/worker/src/notify.mjs" "$RUN_DIR" || true
-        ARTIFACT_PATH="$ACTION_ROOT/upload"
-        node "${{ github.action_path }}/worker/src/export-artifact.mjs" "$RUN_DIR" "$ARTIFACT_PATH"
-        printf 'artifact-path=%s\n' "$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+        if [ -f "$ARTIFACT_PATH/REPORT.html" ]; then
+          printf 'report-path=%s/REPORT.html\n' "$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+        fi
         exit 0
 
-    - name: Fail job on FAIL
-      if: ${{ steps.run.outputs.verdict == 'fail' }}
+    - name: Enforce release gate
+      if: ${{ always() }}
       shell: bash
+      env:
+        WITNESS_VERDICT: ${{ steps.run.outputs.verdict }}
       run: |
-        echo "WitnessQA verdict=fail"
-        exit 1
+        node "${{ github.action_path }}/worker/src/verdict.mjs" gate "$WITNESS_VERDICT"
 
     - name: Upload evidence
       uses: actions/upload-artifact@v4
@@ -129,7 +144,7 @@ runs:
         retention-days: 30
 
     - name: Comment on PR
-      if: ${{ inputs.comment-pr == 'true' && github.event_name == 'pull_request' }}
+      if: ${{ always() && inputs.comment-pr == 'true' && github.event_name == 'pull_request' }}
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -140,8 +155,13 @@ runs:
       run: |
         VERDICT="$WITNESS_VERDICT"
         REPORT="$WITNESS_REPORT_PATH"
+        if [ -n "$REPORT" ]; then
+          REPORT_LINE="Report path: \`$REPORT\`"
+        else
+          REPORT_LINE="Report unavailable; inspect the artifact for exporter diagnostics."
+        fi
         BODY="## WitnessQA · ${VERDICT^^}
         Evidence artifact: **${WITNESS_ARTIFACT_NAME}**.
-        Report path: \`${REPORT}\`
+        ${REPORT_LINE}
         <sub>evidence, not promises</sub>"
         gh pr comment "$WITNESS_PR_NUMBER" --body "$BODY"

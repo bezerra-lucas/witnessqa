@@ -73,3 +73,16 @@ test("artifact export refuses a reused destination", () => {
 
   assert.throws(() => exportArtifact(run, out), /já existe/);
 });
+
+test("artifact export creates a sanitized non-pass dossier when a run produced no flows", () => {
+  const root = mkdtempSync(join(tmpdir(), "wq-export-fallback-"));
+  const out = join(root, "upload");
+
+  const exported = exportArtifact(join(root, "missing-run"), out, { fallbackVerdict: "blocked" });
+
+  assert.equal(exported.flows, 1);
+  assert.ok(existsSync(join(out, "REPORT.html")));
+  const result = JSON.parse(readFileSync(join(out, "run-status", "result.json"), "utf8"));
+  assert.equal(result.verdict, "blocked");
+  assert.equal(result.privacyVersion, 1);
+});

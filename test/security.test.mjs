@@ -50,9 +50,10 @@ test("parseScenario never repeats malformed source in its error", () => {
 });
 
 test("GitHub Action uploads only the prepared evidence bundle", () => {
-  const action = readFileSync(join(root, "action/action.yml"), "utf8");
+  assert.equal(existsSync(join(root, "action/action.yml")), false, "nested metadata is not invocable as owner/repository@ref");
+  const action = readFileSync(join(root, "action.yml"), "utf8");
   const parsed = YAML.parse(action);
-  assert.match(action, /export-artifact\.mjs/);
+  assert.match(action, /action-artifact\.mjs/);
   assert.match(action, /path:\s*\$\{\{ steps\.run\.outputs\.artifact-path \}\}/);
   assert.doesNotMatch(action, /path:\s*\.witness\/runs\//);
   assert.doesNotMatch(action, /MODE="\$\{\{ inputs\./);
@@ -62,11 +63,32 @@ test("GitHub Action uploads only the prepared evidence bundle", () => {
   assert.doesNotMatch(action, /LATEST=\$\(ls/);
   assert.match(action, /mktemp -d/);
   assert.match(action, /WITNESS_RUN_OUT/);
+  assert.match(action, /verdict\.mjs" from-exit/);
+  assert.match(action, /verdict\.mjs" gate/);
   assert.equal(parsed.outputs.verdict.value, "${{ steps.run.outputs.verdict }}");
   assert.equal(parsed.outputs["report-path"].value, "${{ steps.run.outputs.report-path }}");
   assert.equal(parsed.outputs["artifact-path"].value, "${{ steps.run.outputs.artifact-path }}");
   for (const step of parsed.runs.steps) {
     if (!step.run) continue;
     assert.doesNotMatch(step.run, /\$\{\{\s*(?:steps\.run\.outputs|github\.event)\./, `${step.name} interpolates untrusted output in shell`);
+  }
+  const gate = parsed.runs.steps.find((step) => step.name === "Enforce release gate");
+  const run = parsed.runs.steps.find((step) => step.name === "Run WitnessQA");
+  const upload = parsed.runs.steps.find((step) => step.name === "Upload evidence");
+  const comment = parsed.runs.steps.find((step) => step.name === "Comment on PR");
+  assert.match(run.if, /always\(\)/);
+  assert.match(run.run, /FINAL_VERDICT=.*action-artifact\.mjs/);
+  assert.match(run.run, /\*\) VERDICT=fail/);
+  assert.match(run.run, /report-path=%s\/REPORT\.html/);
+  assert.match(gate.if, /always\(\)/);
+  assert.match(upload.if, /always\(\)/);
+  assert.match(comment.if, /always\(\)/);
+
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
+  assert.match(workflow, /uses:\s*\.\//);
+  assert.match(workflow, /uses:\s*actions\/download-artifact@v4/);
+  assert.match(workflow, /DOWNLOADED_REPORT/);
+  for (const verdict of ["pass", "fail", "blocked"]) {
+    assert.match(workflow, new RegExp(`verdict: ${verdict}`));
   }
 });

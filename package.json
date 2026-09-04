@@ -16,7 +16,7 @@
     "README.md",
     "SECURITY.md",
     "docs/releases",
-    "action"
+    "action.yml"
   ],
   "keywords": [
     "qa",

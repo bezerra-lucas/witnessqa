@@ -94,7 +94,11 @@ sanitized HTML excerpt requires the explicit opt-in
     discord-webhook: ${{ secrets.DISCORD_WEBHOOK }}
 ```
 
-Job fails only on **FAIL**. Artifact = full dossier. PR gets a comment.
+The public verdict/exit contract is: `pass`/`0`, `fail`/`1`, and
+`blocked`/`2`. The release job succeeds only on **PASS**; both **FAIL** and
+**BLOCKED** reject the gate. Internal warnings and unknown/empty results also
+fail closed. Sanitized evidence still uploads with `always()`, and the PR
+receives the verdict comment even when the gate is rejected.
 
 Docker (same CLI, CI/cloud):
 

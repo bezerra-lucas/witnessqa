@@ -45,6 +45,17 @@ test("e2e fixture: 3 pass + 1 fail, sanitized HTML dossier generated", async () 
       screenshots: ["legacy.png"],
     }));
     writeFileSync(join(legacyHome, "legacy.png"), Buffer.from("legacy-bitmap"));
+    const invalidSecret = "opaque-invalid-resume-value";
+    const invalidCart = join(out, "cart");
+    mkdirSync(invalidCart);
+    writeFileSync(join(invalidCart, "result.json"), JSON.stringify({
+      privacyVersion: 1,
+      name: "invalid resume",
+      verdict: "unknown",
+      steps: [{ ok: true, step: { fill: { selector: "#stale", value: invalidSecret } } }],
+      screenshots: ["invalid.png"],
+    }));
+    writeFileSync(join(invalidCart, "invalid.png"), Buffer.from("invalid-resume-bitmap"));
     const worker = join(root, "worker/src/worker.mjs");
     const scenarios = join(root, "test/fixtures/witness");
     const code = await new Promise((resolve) => {
@@ -83,6 +94,8 @@ test("e2e fixture: 3 pass + 1 fail, sanitized HTML dossier generated", async () 
     assert.equal(home.privacyVersion, 1);
     assert.doesNotMatch(readFileSync(join(out, "home", "result.json"), "utf8"), new RegExp(legacySecret));
     assert.equal(existsSync(join(out, "home", "legacy.png")), false, "legacy evidence must be discarded before rerun");
+    assert.equal(existsSync(join(out, "cart", "invalid.png")), false, "unknown verdict evidence must be discarded before rerun");
+    assert.doesNotMatch(readFileSync(join(out, "cart", "result.json"), "utf8"), new RegExp(invalidSecret));
 
     const privateTexts = ["Fixture Private Person", "Fixture Custom Selector Private"];
     const textArtifacts = [

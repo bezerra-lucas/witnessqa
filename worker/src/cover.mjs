@@ -300,4 +300,7 @@ if (isCli) {
   for (const p of r.pages) {
     console.log(`  ${p.error ? "✗" : "✓"} ${p.url}  ${p.heading || p.error || ""}`);
   }
+  if (r.pages.some((page) => page.error) || r.generated === 0) {
+    process.exitCode = 2;
+  }
 }

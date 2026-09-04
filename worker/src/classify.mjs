@@ -45,7 +45,7 @@ export function classifyFlow(f) {
 
   if (f.verdict === "blocked" || isCrashDetail(details)) return "blocked";
   if (f.verdict === "warn") return "warn";
-  if (f.verdict !== "fail") return f.verdict === "pass" ? "pass" : "pass";
+  if (f.verdict !== "fail") return f.verdict === "pass" ? "pass" : "blocked";
 
   const isAuthRedirect =
     /login|signin|access/i.test(f.name ?? "") &&

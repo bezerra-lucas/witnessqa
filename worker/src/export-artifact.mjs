@@ -6,8 +6,9 @@ import { packRun } from "./packer.mjs";
 import { createEvidenceGuard, PRIVACY_VERSION } from "./privacy.mjs";
 import { safeEvidencePath } from "./safe-evidence-path.mjs";
 
-export function exportArtifact(runDir, outDir) {
-  if (!runDir || !existsSync(runDir)) throw new Error("run de evidência não encontrada");
+export function exportArtifact(runDir, outDir, { fallbackVerdict = "" } = {}) {
+  const canFallback = fallbackVerdict === "fail" || fallbackVerdict === "blocked";
+  if ((!runDir || !existsSync(runDir)) && !canFallback) throw new Error("run de evidência não encontrada");
   if (!outDir) throw new Error("diretório de exportação obrigatório");
   if (existsSync(outDir)) throw new Error("diretório de exportação já existe; use um destino novo");
   mkdirSync(outDir, { recursive: true });
@@ -15,7 +16,7 @@ export function exportArtifact(runDir, outDir) {
   let flows = 0;
   let screenshots = 0;
 
-  for (const entry of readdirSync(runDir, { withFileTypes: true })) {
+  for (const entry of runDir && existsSync(runDir) ? readdirSync(runDir, { withFileTypes: true }) : []) {
     if (!entry.isDirectory()) continue;
     const sourceDir = join(runDir, entry.name);
     const resultPath = safeEvidencePath(sourceDir, "result.json", { extension: ".json" });
@@ -53,6 +54,26 @@ export function exportArtifact(runDir, outDir) {
     if (urlPath) guard.writeText(join(targetDir, "url.txt"), readFileSync(urlPath, "utf8"));
   }
 
+  if (!flows && canFallback) {
+    const targetDir = join(outDir, "run-status");
+    mkdirSync(targetDir, { recursive: true });
+    guard.writeJson(join(targetDir, "result.json"), {
+      privacyVersion: PRIVACY_VERSION,
+      name: "WitnessQA execution",
+      what: "registra uma execução encerrada antes de produzir evidência de fluxo",
+      verdict: fallbackVerdict,
+      steps: [],
+      consoleErrors: [],
+      pageErrors: [],
+      networkErrors: [],
+      brokenImages: [],
+      screenshots: [],
+      failure: { type: "run", message: "nenhuma evidência de fluxo foi produzida" },
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+    flows = 1;
+  }
   if (!flows) throw new Error("nenhuma evidência com privacyVersion compatível");
   const packed = packRun(outDir);
   return { path: outDir, flows, screenshots, report: packed.path };
@@ -61,7 +82,9 @@ export function exportArtifact(runDir, outDir) {
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 if (isMain) {
   try {
-    const result = exportArtifact(process.argv[2], process.argv[3]);
+    const fallbackIndex = process.argv.indexOf("--fallback-verdict");
+    const fallbackVerdict = fallbackIndex > -1 ? process.argv[fallbackIndex + 1] : "";
+    const result = exportArtifact(process.argv[2], process.argv[3], { fallbackVerdict });
     console.log(JSON.stringify(result));
   } catch (error) {
     console.error(error.message);

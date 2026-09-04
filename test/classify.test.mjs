@@ -29,6 +29,10 @@ test("blocked verdict stays blocked", () => {
   assert.equal(classifyFlow({ verdict: "blocked", steps: [] }), "blocked");
 });
 
+test("unknown verdict fails closed as blocked", () => {
+  assert.equal(classifyFlow({ verdict: "unknown", steps: [] }), "blocked");
+});
+
 test("login timeout with first step ok is SKIP", () => {
   const f = {
     name: "admin-01-login-formulario",
