@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { positionalArgs } from "../cli.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(root, "cli.mjs");
@@ -33,4 +34,11 @@ test("cli unknown command exits 1", () => {
   const r = run(["wat"]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /desconhecido/);
+});
+
+test("CLI positional parsing excludes values owned by flags", () => {
+  assert.deepEqual(
+    positionalArgs(["witness/home.yaml", "--base-url", "https://app.test", "--auth", "state.json", "--headed"]),
+    ["witness/home.yaml"],
+  );
 });

@@ -1,0 +1,11 @@
+name: fixture-privacy
+what: validates evidence masking after a sensitive fill
+redaction:
+  selectors:
+    - ".custom-private"
+steps:
+  - goto: /?privacy=1
+  - fill: {selector: "#private-email", value: $FIXTURE_PRIVATE_EMAIL}
+  - expectVisible: "#private-email"
+checks:
+  - noBrokenImages

@@ -14,6 +14,8 @@
     "cli.mjs",
     "worker/src",
     "README.md",
+    "SECURITY.md",
+    "docs/releases",
     "action"
   ],
   "keywords": [

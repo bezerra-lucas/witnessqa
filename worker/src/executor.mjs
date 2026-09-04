@@ -7,15 +7,17 @@
  *   - page.html não era dumpado → BYOK sem contexto
  *   - expectText string vs objeto
  */
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { launchBrowser } from "./browser.mjs";
 import { expandEnv, isCrashDetail, normalizeExpectText, isNoiseMessage, isNoiseNetwork } from "./classify.mjs";
+import { createEvidenceGuard, PRIVACY_VERSION } from "./privacy.mjs";
 
 const NOISE_CONSOLE = /Failed to load resource:.*(favicon|hot-update|\.map|status of 404)|Download the React DevTools|third-party cookie will be blocked/i;
 
 export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, authFile, headed } = {}) {
   mkdirSync(evidenceDir, { recursive: true });
+  const guard = createEvidenceGuard({ scenario });
   const vp = scenario.viewport ?? viewport ?? { width: 1440, height: 950 };
   const auth = scenario.auth ?? authFile;
   const appBase = scenario.app ?? baseUrl ?? "";
@@ -31,6 +33,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     brokenImages: [],
     screenshots: [],
     failure: null,
+    privacyVersion: PRIVACY_VERSION,
     startedAt: new Date().toISOString(),
   };
 
@@ -39,10 +42,9 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     browser = await launchBrowser({ headless: headed !== true });
   } catch (err) {
     result.verdict = "blocked";
-    result.failure = { type: "browser", message: String(err).slice(0, 400) };
+    result.failure = guard.redact({ type: "browser", message: String(err).slice(0, 400) });
     result.finishedAt = new Date().toISOString();
-    writeFileSync(join(evidenceDir, "result.json"), JSON.stringify(result, null, 2));
-    return result;
+    return guard.writeJson(join(evidenceDir, "result.json"), result);
   }
 
   const contextOpts = { viewport: vp };
@@ -55,25 +57,25 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     const t = m.text();
     const loc = m.location()?.url ?? "";
     if (NOISE_CONSOLE.test(t) || isNoiseMessage(t) || /favicon|\.map(\?|$)|hot-update/.test(loc + " " + t)) return;
-    result.consoleErrors.push(t);
+    result.consoleErrors.push(guard.redactText(t));
   });
   page.on("pageerror", (e) => {
     const t = String(e);
     if (isNoiseMessage(t)) return;
-    result.pageErrors.push(t);
+    result.pageErrors.push(guard.redactText(t));
   });
   page.on("requestfailed", (req) => {
     const url = req.url();
     const line = `${req.failure()?.errorText ?? "failed"} ${url}`.slice(0, 240);
     if (isNoiseNetwork(line) || /favicon|hot-update|\.map(\?|$)/.test(url)) return;
-    result.networkErrors.push(line);
+    result.networkErrors.push(guard.redactText(line));
   });
   page.on("response", (res) => {
     if (res.status() < 400) return;
     const url = res.url();
     const line = `${res.status()} ${url}`.slice(0, 240);
     if (isNoiseNetwork(line) || /favicon|hot-update|\.map(\?|$)/.test(url)) return;
-    result.networkErrors.push(line);
+    result.networkErrors.push(guard.redactText(line));
   });
 
   try {
@@ -81,18 +83,18 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
       if (page.isClosed()) {
         page = await context.newPage();
       }
-      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result });
+      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result, guard });
       result.steps.push(entry);
       if (!entry.ok) {
         result.verdict = isCrashDetail(entry.detail) ? "blocked" : "fail";
-        result.failure = { stepIndex: i, step, detail: entry.detail, type: result.verdict === "blocked" ? "crash" : "step" };
-        await dumpPage(page, evidenceDir);
+        result.failure = guard.redact({ stepIndex: i, step, detail: entry.detail, type: result.verdict === "blocked" ? "crash" : "step" });
+        await dumpPage(page, evidenceDir, guard);
         break;
       }
     }
 
     if (result.verdict === "pass") {
-      result.brokenImages = await findBrokenImages(page);
+      result.brokenImages = guard.redact(await findBrokenImages(page));
       if (scenario.checks?.includes("noBrokenImages") && result.brokenImages.length) {
         result.verdict = "fail";
         result.failure = { type: "brokenImages", images: result.brokenImages };
@@ -101,24 +103,23 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
         result.verdict = "warn";
         result.failure = { type: "consoleErrors", errors: result.consoleErrors.slice(0, 5) };
       }
-      await dumpPage(page, evidenceDir);
+      await dumpPage(page, evidenceDir, guard);
     }
   } catch (err) {
     result.verdict = isCrashDetail(err) ? "blocked" : "blocked";
-    result.failure = { type: "exception", message: String(err).slice(0, 500) };
-    await safeShot(page, join(evidenceDir, "crash-step.png"), result);
-    await dumpPage(page, evidenceDir);
+    result.failure = guard.redact({ type: "exception", message: String(err).slice(0, 500) });
+    await safeShot(page, join(evidenceDir, "crash-step.png"), guard);
+    await dumpPage(page, evidenceDir, guard);
   } finally {
     await browser.close().catch(() => {});
     result.finishedAt = new Date().toISOString();
   }
 
-  writeFileSync(join(evidenceDir, "result.json"), JSON.stringify(result, null, 2));
-  return result;
+  return guard.writeJson(join(evidenceDir, "result.json"), result);
 }
 
-async function runStep(page, step, index, { evidenceDir, baseUrl, result }) {
-  const entry = { index, step: sanitizeStep(step), ok: true, detail: "" };
+async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard }) {
+  const entry = { index, step: guard.redact(step), ok: true, detail: "" };
   const shotName = `step-${String(index).padStart(2, "0")}.png`;
   try {
     if (page.isClosed()) throw new Error("Target closed: page was closed before step");
@@ -129,7 +130,7 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result }) {
       await dismissOverlays(page);
     } else if (step.fill) {
       const selector = step.fill.selector ?? step.fill[0];
-      const value = expandEnv(step.fill.value ?? step.fill[1] ?? "");
+      const value = expandEnv(step.fill.value ?? step.fill[1] ?? "", process.env, { required: true });
       try {
         await page.fill(selector, value, { timeout: 10_000 });
       } catch (err) {
@@ -211,12 +212,13 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result }) {
     }
   } catch (err) {
     entry.ok = false;
-    entry.detail = String(err).split("\n")[0].slice(0, 300);
+    entry.detail = guard.redactText(String(err).split("\n")[0].slice(0, 300));
   }
 
-  await safeShot(page, join(evidenceDir, shotName), result);
-  entry.screenshot = shotName;
-  result.screenshots.push(shotName);
+  if (await safeShot(page, join(evidenceDir, shotName), guard)) {
+    entry.screenshot = shotName;
+    result.screenshots.push(shotName);
+  }
   return entry;
 }
 
@@ -289,20 +291,6 @@ async function gotoResilient(page, url) {
   await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
 }
 
-function sanitizeStep(step) {
-  if (!step || typeof step !== "object") return step;
-  const copy = { ...step };
-  if (copy.fill?.value) copy.fill = { ...copy.fill, value: redact(copy.fill.value) };
-  return copy;
-}
-
-function redact(v) {
-  if (typeof v !== "string") return v;
-  if (/^\$[A-Z_]+$/.test(v)) return v;
-  if (v.length > 4 && /pass|secret|token|key/i.test(v)) return "••••";
-  return v;
-}
-
 async function findBrokenImages(page) {
   if (page.isClosed()) return [];
   try {
@@ -339,27 +327,13 @@ async function findBrokenImages(page) {
   }
 }
 
-async function dumpPage(page, evidenceDir) {
+async function dumpPage(page, evidenceDir, guard) {
   if (!page || page.isClosed()) return;
-  try {
-    writeFileSync(join(evidenceDir, "page.html"), await page.content());
-    writeFileSync(join(evidenceDir, "url.txt"), page.url());
-  } catch {
-    /* página pode ter crashado */
-  }
+  await guard.captureHtml(page, join(evidenceDir, "page.html"));
+  guard.writeText(join(evidenceDir, "url.txt"), page.url());
 }
 
-async function safeShot(page, path, result) {
-  if (!page || page.isClosed()) return;
-  try {
-    await page.screenshot({ path, fullPage: false, timeout: 8_000 });
-    return;
-  } catch {
-    /* fullPage costuma OOM em dashboards — já evitamos; último recurso */
-  }
-  try {
-    await page.screenshot({ path, fullPage: false, timeout: 5_000, clip: { x: 0, y: 0, width: 1280, height: 720 } });
-  } catch {
-    /* segue sem evidência visual */
-  }
+async function safeShot(page, path, guard) {
+  if (!page || page.isClosed()) return false;
+  return guard.captureScreenshot(page, path, { fullPage: false, timeout: 8_000 });
 }

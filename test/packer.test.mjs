@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { packRun } from "../worker/src/packer.mjs";
@@ -23,10 +23,11 @@ function fixtureRun() {
       consoleErrors: ["TypeError: x is not a function"],
       networkErrors: ["422 https://shop.test/api/coupon"],
       pageErrors: [],
-      screenshots: [],
+      screenshots: ["legacy.png"],
       analysis: { cause: "cupom rejeitado", isBug: true, confidence: 0.8, suggestion: "normalizar case" },
     }),
   );
+  writeFileSync(join(failDir, "legacy.png"), Buffer.from("unsafe-legacy-bitmap"));
 
   const crashDir = join(dir, "dashboard");
   mkdirSync(crashDir);
@@ -62,9 +63,52 @@ test("packer marks crash as BLOCKED and fail as FAIL", () => {
   assert.match(html, /Instrument Serif/);
   assert.match(html, /themeBtn/);
   assert.match(html, /id="lightbox"/);
+  assert.doesNotMatch(html, new RegExp(Buffer.from("unsafe-legacy-bitmap").toString("base64")));
+  assert.match(html, /captura legada omitida/i);
   assert.ok(existsSync(info.path));
 });
 
 test("packer refuses missing dir", () => {
   assert.throws(() => packRun("/no/such/run"), /uso:/);
+});
+
+test("packer escapes scenario names in HTML attributes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wq-xss-"));
+  const flow = join(dir, "unsafe-name");
+  mkdirSync(flow);
+  writeFileSync(join(flow, "result.json"), JSON.stringify({
+    privacyVersion: 1,
+    name: '\"><img src=x onerror="globalThis.pwned=true">',
+    verdict: "pass",
+    steps: [],
+    consoleErrors: [],
+    screenshots: [],
+  }));
+
+  packRun(dir);
+  const html = readFileSync(join(dir, "REPORT.html"), "utf8");
+  assert.doesNotMatch(html, /data-name=""><img/);
+  assert.match(html, /data-name="&quot;&gt;&lt;img/);
+});
+
+test("packer refuses traversal and symlink screenshot paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "wq-path-"));
+  const run = join(root, "run");
+  const flow = join(run, "flow");
+  mkdirSync(flow, { recursive: true });
+  const outside = join(root, "outside.png");
+  writeFileSync(outside, Buffer.from("outside-private-bitmap"));
+  symlinkSync(outside, join(flow, "linked.png"));
+  writeFileSync(join(flow, "result.json"), JSON.stringify({
+    privacyVersion: 1,
+    name: "path safety",
+    verdict: "pass",
+    steps: [],
+    consoleErrors: [],
+    screenshots: ["../../outside.png", "linked.png"],
+  }));
+
+  packRun(run);
+  const html = readFileSync(join(run, "REPORT.html"), "utf8");
+  assert.doesNotMatch(html, new RegExp(Buffer.from("outside-private-bitmap").toString("base64")));
 });

@@ -16,7 +16,12 @@
  */
 
 export function parseScenario(raw, yamlLib) {
-  const doc = typeof raw === "string" ? yamlLib.parse(raw) : raw;
+  let doc;
+  try {
+    doc = typeof raw === "string" ? yamlLib.parse(raw) : raw;
+  } catch {
+    throw new Error("Cenário YAML/JSON inválido");
+  }
   if (!doc?.name || !Array.isArray(doc.steps)) {
     throw new Error("Cenário inválido: precisa de `name` e `steps[]`");
   }

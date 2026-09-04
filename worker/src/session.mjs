@@ -5,10 +5,13 @@
  * Uso: node src/session.mjs <cenário-login.yaml>
  * Credenciais: use $ENV_VARS no `value` dos steps de fill — expandidas daqui.
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import YAML from "yaml";
 import { launchBrowser } from "./browser.mjs";
+import { expandEnv } from "./classify.mjs";
+import { createEvidenceGuard, preparePrivateDirectory, securePrivateFile } from "./privacy.mjs";
+import { parseScenario } from "./scenario.mjs";
 
 const AUTH_DIR = ".witness/auth";
 
@@ -18,12 +21,10 @@ if (!file) {
   process.exit(1);
 }
 
-const scenario = YAML.parse(readFileSync(file, "utf8"));
+const scenario = parseScenario(readFileSync(file, "utf8"), YAML);
 if (!scenario?.steps) die("cenário sem steps");
+const guard = createEvidenceGuard({ scenario });
 
-function expand(v) {
-  return typeof v === "string" ? v.replace(/^\$(\w+)$/, (_, n) => process.env[n] ?? v) : v;
-}
 function abs(p) {
   return p?.startsWith("http") ? p : `${scenario.app ?? ""}${p ?? ""}`;
 }
@@ -46,7 +47,9 @@ for (const [i, step] of scenario.steps.entries()) {
       } catch { /* */ }
     }
   } else if (step.fill) {
-    await page.fill(step.fill.selector, expand(step.fill.value), { timeout: 10_000 });
+    const selector = step.fill.selector ?? step.fill[0];
+    const value = step.fill.value ?? step.fill[1] ?? "";
+    await page.fill(selector, expandEnv(value, process.env, { required: true }), { timeout: 10_000 });
   } else if (step.click) {
     if (typeof step.click === "object" && step.click.text) {
       await page.getByRole("button", { name: step.click.text }).first().click({ timeout: 8000 }).catch(async () => {
@@ -74,14 +77,15 @@ await page.waitForTimeout(2500);
 
 // heurística simples de validação: saiu da tela de login?
 const stillOnLogin = /login|signin|access/i.test(page.url());
-mkdirSync(AUTH_DIR, { recursive: true });
+preparePrivateDirectory(AUTH_DIR);
 const name = basename(file).replace(/\.ya?ml$/, "");
 const statePath = join(AUTH_DIR, `${name}.json`);
 await context.storageState({ path: statePath });
-await page.screenshot({ path: join(AUTH_DIR, `${name}-final.png`), fullPage: false });
+securePrivateFile(statePath);
+await guard.captureScreenshot(page, join(AUTH_DIR, `${name}-final.png`), { fullPage: false });
 await browser.close();
 
 if (stillOnLogin) {
-  die(`login parece não ter completado (url ainda contém login/access): ${page.url()}`);
+  die(`login parece não ter completado (url ainda contém login/access): ${guard.redactText(page.url())}`);
 }
 console.log(`✓ sessão salva em ${statePath}`);

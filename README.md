@@ -44,6 +44,18 @@ Manual YAML still works (`witnessqa run`). Prefer `cover` — it writes one scen
 
 `$WITNESS_EMAIL` / `$WITNESS_PASSWORD` expand in `fill.value`.
 
+Credentials must stay in a CI secret store or ephemeral environment variables;
+literal login values in tracked scenarios are rejected by the test suite. See
+[SECURITY.md](SECURITY.md) for session handling, evidence masking and migration.
+The verification record for this hardening is in the
+[0.2.0 security release note](docs/releases/0.2.0-security.md).
+
+Evidence is sanitized before it is written: form fields and configured private
+regions are masked in screenshots, HTML/scripts and common PII are redacted, and
+legacy unverified screenshots are not embedded into new reports. Mark additional
+app-specific regions with `data-witness-redact` or scenario
+`redaction.selectors`.
+
 ### BYOK (free)
 
 ```bash
@@ -52,6 +64,10 @@ export WITNESS_MODEL="openai/gpt-4o-mini"
 ```
 
 No key: runs still work, skip cause analysis.
+
+BYOK receives sanitized diagnostics without page HTML by default. Sending a
+sanitized HTML excerpt requires the explicit opt-in
+`WITNESS_BYOK_INCLUDE_HTML=true`.
 
 ## Commands
 

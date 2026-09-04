@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { isNoiseNetwork, isNoiseMessage } from "../worker/src/classify.mjs";
-import { diffRuns } from "../worker/src/diff.mjs";
+import { diffRuns, renderDiffHtml } from "../worker/src/diff.mjs";
 
 test("RSC abort and React 418 are noise", () => {
   assert.equal(isNoiseNetwork("net::ERR_ABORTED https://x/?_rsc=abc"), true);
@@ -28,4 +28,26 @@ test("diff detects regression", () => {
   const d = diffRuns(a, b);
   assert.equal(d.regressions.length, 1);
   assert.equal(d.added.length, 1);
+});
+
+test("diff sanitizes legacy result labels and paths", () => {
+  const a = mkdtempSync(join(tmpdir(), "wq-diff-private-a-"));
+  const b = mkdtempSync(join(tmpdir(), "wq-diff-private-b-"));
+  const privateEmail = "legacy.private@example.test";
+  for (const [root, verdict] of [[a, "pass"], [b, "fail"]]) {
+    const flow = join(root, "flow");
+    mkdirSync(flow);
+    writeFileSync(join(flow, "result.json"), JSON.stringify({
+      name: privateEmail,
+      what: `flow for ${privateEmail}`,
+      verdict,
+      steps: [{ ok: verdict === "pass", step: { goto: `https://app.test/?token=${privateEmail}` } }],
+    }));
+  }
+
+  const result = diffRuns(a, b);
+  const serialized = JSON.stringify(result);
+  const html = renderDiffHtml(result);
+  assert.doesNotMatch(serialized, new RegExp(privateEmail));
+  assert.doesNotMatch(html, new RegExp(privateEmail));
 });

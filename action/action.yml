@@ -44,8 +44,13 @@ inputs:
 outputs:
   verdict:
     description: "pass | fail | blocked"
+    value: ${{ steps.run.outputs.verdict }}
   report-path:
     description: "Path to REPORT.html"
+    value: ${{ steps.run.outputs.report-path }}
+  artifact-path:
+    description: "Path to the sanitized upload bundle"
+    value: ${{ steps.run.outputs.artifact-path }}
 
 runs:
   using: "composite"
@@ -69,38 +74,42 @@ runs:
         WITNESS_DISCORD_WEBHOOK: ${{ inputs.discord-webhook }}
         GH_TOKEN: ${{ github.token }}
         WITNESS_GH_PR: ${{ github.event.pull_request.number }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_AUTH: ${{ inputs.auth }}
+        INPUT_BASE_URL: ${{ inputs.base-url }}
+        INPUT_SCENARIOS: ${{ inputs.scenarios }}
       run: |
+        ACTION_ROOT=$(mktemp -d "${RUNNER_TEMP:-/tmp}/witnessqa-action.XXXXXX")
+        RUN_DIR="$ACTION_ROOT/run"
+        export WITNESS_RUN_OUT="$RUN_DIR"
+        export WITNESS_COVER_OUT="$ACTION_ROOT/graph"
         set +e
-        MODE="${{ inputs.mode }}"
-        AUTH="${{ inputs.auth }}"
-        BASE="${{ inputs.base-url }}"
+        MODE="$INPUT_MODE"
+        AUTH="$INPUT_AUTH"
+        BASE="$INPUT_BASE_URL"
         if [ "$MODE" = "cover" ]; then
-          if [ -n "$BASE" ]; then
-            EXTRA="$BASE"
-          else
-            EXTRA=""
-          fi
-          if [ -n "$AUTH" ]; then EXTRA="$EXTRA --auth $AUTH"; fi
-          # shellcheck disable=SC2086
-          witnessqa cover $EXTRA --no-open
+          ARGS=()
+          if [ -n "$BASE" ]; then ARGS+=("$BASE"); fi
+          if [ -n "$AUTH" ]; then ARGS+=(--auth "$AUTH"); fi
+          witnessqa cover "${ARGS[@]}" --no-open
         else
-          ARGS=("${{ inputs.scenarios }}")
+          ARGS=("$INPUT_SCENARIOS")
           if [ -n "$BASE" ]; then ARGS+=(--base-url "$BASE"); fi
           if [ -n "$AUTH" ]; then ARGS+=(--auth "$AUTH"); fi
           witnessqa run "${ARGS[@]}"
         fi
         CODE=$?
         set -e
-        LATEST=$(ls -1d .witness/runs/*/ 2>/dev/null | grep -v explore | grep -v cover/ | tail -n 1)
-        if [ -z "$LATEST" ]; then LATEST=$(ls -1d .witness/runs/*/ 2>/dev/null | tail -n 1); fi
-        echo "report-path=${LATEST}REPORT.html" >> "$GITHUB_OUTPUT"
-        if [ "$CODE" -eq 0 ]; then echo "verdict=pass" >> "$GITHUB_OUTPUT"
-        elif [ "$CODE" -eq 2 ]; then echo "verdict=blocked" >> "$GITHUB_OUTPUT"
-        else echo "verdict=fail" >> "$GITHUB_OUTPUT"
+        printf 'report-path=%s/REPORT.html\n' "$RUN_DIR" >> "$GITHUB_OUTPUT"
+        if [ "$CODE" -eq 0 ]; then VERDICT=pass
+        elif [ "$CODE" -eq 2 ]; then VERDICT=blocked
+        else VERDICT=fail
         fi
-        if [ -n "$LATEST" ]; then
-          node "${{ github.action_path }}/worker/src/notify.mjs" "$LATEST" || true
-        fi
+        printf 'verdict=%s\n' "$VERDICT" >> "$GITHUB_OUTPUT"
+        node "${{ github.action_path }}/worker/src/notify.mjs" "$RUN_DIR" || true
+        ARTIFACT_PATH="$ACTION_ROOT/upload"
+        node "${{ github.action_path }}/worker/src/export-artifact.mjs" "$RUN_DIR" "$ARTIFACT_PATH"
+        printf 'artifact-path=%s\n' "$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
         exit 0
 
     - name: Fail job on FAIL
@@ -115,7 +124,8 @@ runs:
       if: always()
       with:
         name: ${{ inputs.artifact-name }}
-        path: .witness/runs/
+        path: ${{ steps.run.outputs.artifact-path }}
+        if-no-files-found: error
         retention-days: 30
 
     - name: Comment on PR
@@ -123,11 +133,15 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        WITNESS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        WITNESS_VERDICT: ${{ steps.run.outputs.verdict }}
+        WITNESS_REPORT_PATH: ${{ steps.run.outputs.report-path }}
+        WITNESS_PR_NUMBER: ${{ github.event.number }}
       run: |
-        VERDICT="${{ steps.run.outputs.verdict }}"
-        REPORT="${{ steps.run.outputs.report-path }}"
+        VERDICT="$WITNESS_VERDICT"
+        REPORT="$WITNESS_REPORT_PATH"
         BODY="## WitnessQA · ${VERDICT^^}
-        Evidence artifact: **${{ inputs.artifact-name }}**.
+        Evidence artifact: **${WITNESS_ARTIFACT_NAME}**.
         Report path: \`${REPORT}\`
         <sub>evidence, not promises</sub>"
-        gh pr comment "${{ github.event.number }}" --body "$BODY"
+        gh pr comment "$WITNESS_PR_NUMBER" --body "$BODY"

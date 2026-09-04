@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { createEvidenceGuard } from "./privacy.mjs";
 
 const url = process.argv[2];
 const authFile = process.argv[3] && existsSync(process.argv[3]) ? process.argv[3] : null;
@@ -14,6 +15,7 @@ if (!url) {
   process.exit(1);
 }
 mkdirSync(".witness/explore", { recursive: true });
+const guard = createEvidenceGuard();
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
@@ -50,7 +52,7 @@ while (queue.length && visited.size < maxNodes) {
     const title = await page.title();
     const slug = key.replace(/https?:\/\//, "").replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
     const shotPath = join(".witness/explore", `${slug}.png`);
-    await page.screenshot({ path: shotPath, fullPage: false }).catch(() => {});
+    await guard.captureScreenshot(page, shotPath, { fullPage: false });
 
     const links = await page.evaluate((origin) => {
       const out = [];
@@ -63,19 +65,19 @@ while (queue.length && visited.size < maxNodes) {
       return out.slice(0, 30);
     }, new URL(key).origin);
 
-    nodes.set(key, { title, shot: shotPath });
-    console.log(`✓ ${key} — "${title}" (${links.length} links)`);
+    nodes.set(guard.redactText(key), { title: guard.redactText(title), shot: shotPath });
+    console.log(`✓ ${guard.redactText(key)} — "${guard.redactText(title)}" (${links.length} links)`);
 
     for (const l of links) {
-      edges.push({ from: key, to: norm(l.to), text: l.text });
+      edges.push(guard.redact({ from: key, to: norm(l.to), text: l.text }));
       if (!visited.has(norm(l.to))) queue.push({ url: norm(l.to), depth: job.depth + 1 });
     }
   } catch (err) {
-    console.log(`✗ ${key} — ${String(err).split("\n")[0].slice(0, 120)}`);
-    nodes.set(key, { error: String(err).split("\n")[0].slice(0, 120) });
+    console.log(`✗ ${guard.redactText(key)} — ${guard.redactText(String(err).split("\n")[0].slice(0, 120))}`);
+    nodes.set(guard.redactText(key), { error: guard.redactText(String(err).split("\n")[0].slice(0, 120)) });
   }
 }
 
 await browser.close();
 console.log(`\ngrafo: ${nodes.size} nós, ${edges.length} arestas em ${((Date.now() - t0) / 1000).toFixed(0)}s`);
-console.log(JSON.stringify({ nodes: Object.fromEntries(nodes), edges }, null, 2));
+console.log(JSON.stringify(guard.redact({ nodes: Object.fromEntries(nodes), edges }), null, 2));

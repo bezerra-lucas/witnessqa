@@ -20,4 +20,6 @@ http
       res.end("no");
     }
   })
-  .listen(port, "127.0.0.1", () => console.log(`fixture http://127.0.0.1:${port}`));
+  .listen(port, "127.0.0.1", function () {
+    console.log(`fixture http://127.0.0.1:${this.address().port}`);
+  });

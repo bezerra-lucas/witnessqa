@@ -8,14 +8,16 @@
  *  - navegação JS: clica de verdade (não só coleta href) e observa mudança de URL/DOM
  *  - assinatura de DOM pra distinguir telas diferentes na mesma URL (SPAs)
  */
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { createEvidenceGuard } from "./privacy.mjs";
 
 const DEFAULTS = { maxNodes: 25, maxDepth: 5, viewport: { width: 1440, height: 950 }, portalValue: "QA Explorer" };
 
 export async function exploreV2({ startUrl, outDir, options = {} }) {
   const cfg = { ...DEFAULTS, ...options };
+  const guard = createEvidenceGuard({ additionalSecrets: [cfg.portalValue] });
   mkdirSync(outDir, { recursive: true });
   const origin = new URL(startUrl).origin;
 
@@ -59,8 +61,8 @@ export async function exploreV2({ startUrl, outDir, options = {} }) {
       const title = await page.title();
       const sig = await page.evaluate(() => document.body?.innerText?.slice(0, 300)?.replace(/\s+/g, " ") ?? "");
       const slug = norm(job.url).replace(/https?:\/\//, "").replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
-      nodes.set(job.url, { title, sigHash: hash(sig), shot: `${slug}.png` });
-      await page.screenshot({ path: join(outDir, `${slug}.png`) }).catch(() => {});
+      nodes.set(guard.redactText(job.url), { title: guard.redactText(title), sigHash: hash(sig), shot: `${slug}.png` });
+      await guard.captureScreenshot(page, join(outDir, `${slug}.png`));
 
       // coleta clicáveis reais
       const clickables = await page.evaluate((o) => {
@@ -116,7 +118,7 @@ export async function exploreV2({ startUrl, outDir, options = {} }) {
         }
       }
     } catch (err) {
-      nodes.set(job.url, { error: String(err).split("\n")[0].slice(0, 150) });
+      nodes.set(guard.redactText(job.url), { error: guard.redactText(String(err).split("\n")[0].slice(0, 150)) });
     }
   }
 
@@ -130,8 +132,7 @@ export async function exploreV2({ startUrl, outDir, options = {} }) {
     edges,
     portalUnlocked,
   };
-  writeFileSync(join(outDir, "graph-v2.json"), JSON.stringify(result, null, 2));
-  return result;
+  return guard.writeJson(join(outDir, "graph-v2.json"), result);
 }
 
 async function detectPortal(page) {
