@@ -73,6 +73,8 @@ sanitized HTML excerpt requires the explicit opt-in
 
 | Command | What it does |
 |---|---|
+| `witnessqa --version-json` | Report the immutable `witnessqa-ci/v1` harness identity |
+| `witnessqa ci --job <json> --out <new-dir>` | Execute a frozen agent journey for native CI |
 | `witnessqa cover [url]` | Discover routes (nav + clicks + wizards), generate YAML, run, serve the dossier |
 | `witnessqa login [file]` | Save Playwright storageState |
 | `witnessqa run [names…]` | Run existing YAML |
@@ -81,6 +83,10 @@ sanitized HTML excerpt requires the explicit opt-in
 | `witnessqa vdiff a b` | Pixel visual-diff of screenshots |
 | `witnessqa notify [run]` | Discord/Slack webhook on verdict |
 | `witnessqa list` | List scenarios |
+
+The native CI command is fail-closed, always requires a fresh output directory,
+and never turns collection alone into approval. See the complete
+[native CI interface and SHA-pinned installation guide](docs/native-ci.md).
 
 ## GitHub Action
 

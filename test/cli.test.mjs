@@ -1,9 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { positionalArgs } from "../cli.mjs";
+import { cleanHarness as copyCleanHarness } from "./helpers/clean-harness.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(root, "cli.mjs");
@@ -12,10 +16,57 @@ function run(args) {
   return spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
 }
 
+function cleanHarness() {
+  return copyCleanHarness(root);
+}
+
 test("cli --version", () => {
   const r = run(["--version"]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /0\.2\.\d+/);
+  assert.equal(r.stdout.trim(), "0.3.0");
+});
+
+test("cli --version-json identifies the immutable CI interface and checkout", () => {
+  const harness = cleanHarness();
+  const expectedHead = spawnSync("git", ["-C", harness, "rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+
+  const r = spawnSync(join(harness, "witnessqa"), ["--version-json"], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH}` },
+  });
+
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), {
+    schema: "witnessqa-version/v1",
+    interface: "witnessqa-ci/v1",
+    version: "0.3.0",
+    head_sha: expectedHead,
+    package_lock_sha256: createHash("sha256").update(readFileSync(join(harness, "package-lock.json"))).digest("hex"),
+  });
+});
+
+test("cli --version-json blocks when any harness source drifts from HEAD", () => {
+  const harness = cleanHarness();
+  writeFileSync(join(harness, "worker/src/ci.mjs"), "// changed after install\n", { flag: "a" });
+
+  const r = spawnSync(process.execPath, [join(harness, "cli.mjs"), "--version-json"], { encoding: "utf8" });
+
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /imutável/);
+  assert.equal(r.stdout, "");
+});
+
+test("installed CI executable cannot claim the checkout identity after diverging from cli.mjs", () => {
+  const harness = cleanHarness();
+  const executable = join(harness, "witnessqa");
+  copyFileSync(join(harness, "cli.mjs"), executable);
+  writeFileSync(executable, "// diverged executable\n", { flag: "a" });
+
+  const r = spawnSync(process.execPath, [executable, "--version-json"], { encoding: "utf8" });
+
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /imutável/);
+  assert.equal(r.stdout, "");
 });
 
 test("cli --help lists report and login", () => {
@@ -34,6 +85,16 @@ test("cli unknown command exits 1", () => {
   const r = run(["wat"]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /desconhecido/);
+});
+
+test("cli ci rejects flags outside its fixed public interface before creating output", () => {
+  const output = join(mkdtempSync(join(tmpdir(), "witnessqa-cli-args-")), "output");
+
+  const r = run(["ci", "--job", "/missing.json", "--out", output, "--unexpected"]);
+
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /uso: witnessqa ci --job <json> --out <novo-dir>/);
+  assert.equal(existsSync(output), false);
 });
 
 test("CLI positional parsing excludes values owned by flags", () => {

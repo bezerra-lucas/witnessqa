@@ -1,6 +1,6 @@
 {
   "name": "witnessqa",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI agents that use your app like a real user and hand you the evidence. QA functional with screenshots, verdicts per flow, and BYOK root-cause analysis.",
   "type": "module",
   "bin": {
@@ -15,6 +15,7 @@
     "worker/src",
     "README.md",
     "SECURITY.md",
+    "docs/native-ci.md",
     "docs/releases",
     "action.yml"
   ],
@@ -34,7 +35,7 @@
   "homepage": "https://github.com/bezerra-lucas/witnessqa#readme",
   "bugs": "https://github.com/bezerra-lucas/witnessqa/issues",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "pixelmatch": "^7.2.0",

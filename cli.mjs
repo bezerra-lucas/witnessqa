@@ -12,11 +12,13 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { platform } from "node:os";
 import YAML from "yaml";
+import { executeCi } from "./worker/src/ci.mjs";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const SCENARIO_DIR = "witness";
 const RUNS_DIR = ".witness/runs";
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -34,11 +36,13 @@ const HELP = `
     diff <run-a> <run-b>        Compara vereditos de duas runs
     vdiff <run-a> <run-b>       Visual-diff de screenshots
     notify [run]                Dispara webhook Discord/Slack do veredito
+    ci --job <json> --out <dir> Executa o seam headless da CI nativa
     login [cenário]             Faz login e grava storageState em .witness/auth/
     report [run]                Gera/abre o laudo HTML da última run
     list                        Lista cenários encontrados
     --help, -h                  Esta ajuda
     --version                   Versão
+    --version-json              Identidade imutável do seam de CI
 
   Exemplos:
     witnessqa init
@@ -152,6 +156,27 @@ async function main() {
     case "-v":
       console.log(VERSION);
       return;
+
+    case "--version-json":
+      console.log(JSON.stringify({
+        schema: "witnessqa-version/v1",
+        interface: "witnessqa-ci/v1",
+        version: VERSION,
+        ...repositoryIdentity(),
+      }));
+      return;
+
+    case "ci": {
+      if (rest.length !== 4 || rest[0] !== "--job" || rest[2] !== "--out" || !rest[1] || !rest[3]) {
+        console.error("uso: witnessqa ci --job <json> --out <novo-dir>");
+        process.exitCode = 2;
+        return;
+      }
+      const job = flagValue(flags, rest, "--job");
+      const out = flagValue(flags, rest, "--out");
+      process.exitCode = await executeCi(job, out, { version: VERSION, observe: repositoryIdentity });
+      return;
+    }
 
     case "init": {
       mkdirSync(SCENARIO_DIR, { recursive: true });
@@ -359,7 +384,32 @@ function flagValue(_flags, rest, name) {
   return rest[i + 1];
 }
 
-const VALUE_FLAGS = new Set(["--auth", "--base-url", "--jobs", "--max", "--max-nodes", "--out"]);
+function repositoryIdentity() {
+  const invoked = process.argv[1] ? resolve(process.argv[1]) : "";
+  const canonical = join(HERE, "cli.mjs");
+  if (!invoked || !existsSync(invoked) || !readFileSync(invoked).equals(readFileSync(canonical))) {
+    throw new Error("não foi possível verificar o executável imutável do WitnessQA");
+  }
+  const observed = spawnSync("git", ["-C", HERE, "rev-parse", "--verify", "HEAD"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const head = observed.status === 0 ? observed.stdout.trim() : "";
+  const status = spawnSync("git", ["-C", HERE, "status", "--porcelain=v1", "--untracked-files=all", "--", "."], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (!/^[a-f0-9]{40}$/.test(head) || status.status !== 0 || status.stdout.trim()) {
+    throw new Error("não foi possível verificar uma árvore imutável do WitnessQA");
+  }
+  const packageLock = readFileSync(join(HERE, "package-lock.json"));
+  return {
+    head_sha: head,
+    package_lock_sha256: createHash("sha256").update(packageLock).digest("hex"),
+  };
+}
+
+const VALUE_FLAGS = new Set(["--auth", "--base-url", "--job", "--jobs", "--max", "--max-nodes", "--out"]);
 
 export function positionalArgs(args) {
   const positionals = [];
