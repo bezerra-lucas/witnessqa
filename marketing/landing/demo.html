@@ -54,50 +54,45 @@
 <div class="wrap">
   <a class="back" href="/">← back to witnessqa</a>
   <header>
-    <div class="stamp">PASSED · 7/8</div>
-    <h1>Public record: a live run against <em>a real production app</em></h1>
+    <div class="stamp">PUBLIC DEMO · SANITIZED</div>
+    <h1>Public record: a reproducible run against <em>a synthetic fixture</em></h1>
     <div class="meta">
-      <span>Subject: <b>client portal (real estate SaaS)</b></span>
-      <span>Date: <b>2026-08-23</b></span>
-      <span>Agent runs: <b>8 flows</b></span>
-      <span>Evidence items: <b>24 screenshots + logs</b></span>
+      <span>Subject: <b>local test store</b></span>
+      <span>Date: <b>2026-09-04</b></span>
+      <span>Agent runs: <b>3 flows</b></span>
+      <span>Evidence: <b>masked screenshots + sanitized logs</b></span>
     </div>
   </header>
 
   <section>
     <div class="sec-label">§1 — Scope of examination</div>
-    <p class="lede">This is not a mockup. The agents below were pointed at the staging portal of a real product (our own — we dogfood everything). They logged in, mapped the app as a graph of screens, generated regression scenarios for every branch, and executed them. Every step below links to captured evidence.</p>
+    <p class="lede">This demo is generated from the repository's local fixture through the same executor used for applications. Synthetic data keeps the public artifact reproducible without exposing a customer, credential, browser session or protected QA unit.</p>
   </section>
 
   <section>
     <div class="sec-label">§2 — Verdict per flow</div>
     <table>
       <tr><th>Flow under examination</th><th>Steps</th><th>Verdict</th><th>Evidence</th></tr>
-      <tr><td>Login (email + password → dashboard)</td><td>6</td><td class="v pass">PASS</td><td><a href="demo/step-05.png">final state ↗</a></td></tr>
-      <tr><td>Home / units listing</td><td>3</td><td class="v pass">PASS</td><td><a href="demo/home-step-02.png">final state ↗</a></td></tr>
-      <tr><td>/projects route</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
-      <tr><td>Project feedback screen</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
-      <tr><td>Unit intro (welcome flow)</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
-      <tr><td>Unit checkout screen</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
-      <tr><td>Units index</td><td>3</td><td class="v pass">PASS</td><td>screenshots on file</td></tr>
-      <tr><td>Legacy scenario w/o baseUrl (operator error)</td><td>1</td><td class="v fail">FAIL</td><td>cause identified below</td></tr>
+      <tr><td>Store home and cart badge</td><td>5</td><td class="v pass">PASS</td><td><a href="demo/home-step-02.png">masked state ↗</a></td></tr>
+      <tr><td>Cart confirmation</td><td>5</td><td class="v pass">PASS</td><td><a href="demo/step-05.png">final state ↗</a></td></tr>
+      <tr><td>Missing expected text</td><td>2</td><td class="v fail">FAIL</td><td>cause identified below</td></tr>
     </table>
   </section>
 
   <section>
-    <div class="sec-label">§3 — Evidence gallery (login flow)</div>
+    <div class="sec-label">§3 — Evidence gallery (synthetic flow)</div>
     <div class="gallery">
-      <figure><img src="demo/step-00.png" alt="Step 0 - landing"><figcaption><b>STEP 00</b> — goto / — login page rendered</figcaption></figure>
-      <figure><img src="demo/step-03.png" alt="Step 3 - submit"><figcaption><b>STEP 03</b> — click submit</figcaption></figure>
-      <figure><img src="demo/step-05.png" alt="Step 5 - dashboard"><figcaption><b>STEP 05</b> — assert visible: logged-in dashboard ✓</figcaption></figure>
-      <figure><img src="demo/home-step-02.png" alt="Regression home"><figcaption><b>REGRESSION</b> — home route, session restored via storageState</figcaption></figure>
+      <figure><img src="demo/step-00.png" alt="Synthetic fixture home"><figcaption><b>STEP 00</b> — open the local fixture</figcaption></figure>
+      <figure><img src="demo/step-03.png" alt="Synthetic cart interaction"><figcaption><b>STEP 03</b> — cart state changes</figcaption></figure>
+      <figure><img src="demo/step-05.png" alt="Synthetic checkout confirmation"><figcaption><b>STEP 05</b> — confirmation is visible ✓</figcaption></figure>
+      <figure><img src="demo/home-step-02.png" alt="Masked private region"><figcaption><b>PRIVACY</b> — configured private regions are blacked out</figcaption></figure>
     </div>
   </section>
 
   <section>
     <div class="sec-label">§4 — Investigation of the failing item</div>
     <div class="note">
-      <strong>FINDING:</strong> The one failure was our own operator error — an example scenario shipped without a base URL. The agent navigated to a relative path with nothing to resolve against and reported <em>“Cannot navigate to invalid URL”</em>. Correctly attributed, correctly documented. A stale selector or app bug would receive the same treatment: console errors, HTML at failure time, and (with your own API key) an LLM root-cause analysis attached to the report.
+      <strong>FINDING:</strong> The failing scenario deliberately asks for text that the fixture does not contain. WitnessQA records the failed assertion while sanitizing the step, HTML, URL, screenshot and optional BYOK context before they leave the evidence boundary.
     </div>
   </section>
 

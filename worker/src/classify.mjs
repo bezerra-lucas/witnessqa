@@ -45,7 +45,7 @@ export function classifyFlow(f) {
 
   if (f.verdict === "blocked" || isCrashDetail(details)) return "blocked";
   if (f.verdict === "warn") return "warn";
-  if (f.verdict !== "fail") return f.verdict === "pass" ? "pass" : "pass";
+  if (f.verdict !== "fail") return f.verdict === "pass" ? "pass" : "blocked";
 
   const isAuthRedirect =
     /login|signin|access/i.test(f.name ?? "") &&
@@ -155,9 +155,13 @@ function titleCase(s) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function expandEnv(value) {
+export function expandEnv(value, env = process.env, { required = false } = {}) {
   if (typeof value !== "string") return value;
-  return value.replace(/\$([A-Z_][A-Z0-9_]*)/g, (_, name) => process.env[name] ?? `$${name}`);
+  return value.replace(/\$([A-Z_][A-Z0-9_]*)/g, (_, name) => {
+    if (env[name] !== undefined) return env[name];
+    if (required) throw new Error(`Variável de ambiente obrigatória ausente: ${name}`);
+    return `$${name}`;
+  });
 }
 
 export function normalizeExpectText(raw) {

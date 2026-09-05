@@ -12,11 +12,13 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { platform } from "node:os";
 import YAML from "yaml";
+import { executeCi } from "./worker/src/ci.mjs";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const SCENARIO_DIR = "witness";
 const RUNS_DIR = ".witness/runs";
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -34,11 +36,13 @@ const HELP = `
     diff <run-a> <run-b>        Compara vereditos de duas runs
     vdiff <run-a> <run-b>       Visual-diff de screenshots
     notify [run]                Dispara webhook Discord/Slack do veredito
+    ci --job <json> --out <dir> Executa o seam headless da CI nativa
     login [cenário]             Faz login e grava storageState em .witness/auth/
     report [run]                Gera/abre o laudo HTML da última run
     list                        Lista cenários encontrados
     --help, -h                  Esta ajuda
     --version                   Versão
+    --version-json              Identidade imutável do seam de CI
 
   Exemplos:
     witnessqa init
@@ -66,11 +70,21 @@ function workerFile(name) {
 
 function runNode(script, args, { inherit = true } = {}) {
   return new Promise((resolvePromise) => {
+    let settled = false;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise(code);
+    };
     const child = spawn(process.execPath, [script, ...args], {
       stdio: inherit ? "inherit" : "pipe",
       env: process.env,
     });
-    child.on("exit", (code) => resolvePromise(code ?? 0));
+    child.once("error", (error) => {
+      console.error(`falha ao iniciar processo: ${error.message}`);
+      finish(1);
+    });
+    child.once("exit", (code) => finish(code ?? 1));
   });
 }
 
@@ -129,7 +143,7 @@ function openPath(p) {
 async function main() {
   const [, , cmd, ...rest] = process.argv;
   const flags = rest.filter((a) => a.startsWith("--"));
-  const pos = rest.filter((a) => !a.startsWith("--"));
+  const pos = positionalArgs(rest);
 
   switch (cmd) {
     case "--help":
@@ -142,6 +156,27 @@ async function main() {
     case "-v":
       console.log(VERSION);
       return;
+
+    case "--version-json":
+      console.log(JSON.stringify({
+        schema: "witnessqa-version/v1",
+        interface: "witnessqa-ci/v1",
+        version: VERSION,
+        ...repositoryIdentity(),
+      }));
+      return;
+
+    case "ci": {
+      if (rest.length !== 4 || rest[0] !== "--job" || rest[2] !== "--out" || !rest[1] || !rest[3]) {
+        console.error("uso: witnessqa ci --job <json> --out <novo-dir>");
+        process.exitCode = 2;
+        return;
+      }
+      const job = flagValue(flags, rest, "--job");
+      const out = flagValue(flags, rest, "--out");
+      process.exitCode = await executeCi(job, out, { version: VERSION, observe: repositoryIdentity });
+      return;
+    }
 
     case "init": {
       mkdirSync(SCENARIO_DIR, { recursive: true });
@@ -189,7 +224,7 @@ async function main() {
       const targets = findScenarios(pos);
       if (!targets.length) die("nenhum cenário para rodar");
       const cfg = loadConfig();
-      const outDir = join(RUNS_DIR, String(Date.now()));
+      const outDir = process.env.WITNESS_RUN_OUT || join(RUNS_DIR, String(Date.now()));
       mkdirSync(outDir, { recursive: true });
       const base = flagValue(flags, rest, "--base-url") ?? cfg.baseUrl ?? "";
       const auth = flagValue(flags, rest, "--auth") ?? (existsSync(".witness/auth/login.json") ? ".witness/auth/login.json" : "");
@@ -220,7 +255,7 @@ async function main() {
 
     case "cover": {
       const cfg = loadConfig();
-      const out = flagValue(flags, rest, "--out") ?? join(RUNS_DIR, "cover-graph");
+      const out = process.env.WITNESS_COVER_OUT || flagValue(flags, rest, "--out") || join(RUNS_DIR, "cover-graph");
       mkdirSync(out, { recursive: true });
       const max = flagValue(flags, rest, "--max") ?? "80";
       const jobs = flagValue(flags, rest, "--jobs") ?? "2";
@@ -253,10 +288,11 @@ async function main() {
       if (code !== 0) process.exit(code);
 
       if (!discoverOnly) {
-        const runOut = join(RUNS_DIR, "cover-live");
+        const runOut = process.env.WITNESS_RUN_OUT || join(RUNS_DIR, "cover-live");
         mkdirSync(runOut, { recursive: true });
-        await runNode(workerFile("worker.mjs"), [join(out, "witness"), "--out", runOut, "--jobs", String(jobs)]);
+        const workerCode = await runNode(workerFile("worker.mjs"), [join(out, "witness"), "--out", runOut, "--jobs", String(jobs)]);
         await publishReport(runOut, rest);
+        process.exitCode = workerCode;
       } else {
         console.log(`\ncobertura + YAMLs em ${out}/witness`);
       }
@@ -328,6 +364,11 @@ async function publishReport(dir, rest = []) {
     const code = await runNode(workerFile("packer.mjs"), [dir]);
     if (code !== 0) die("falha ao gerar o laudo");
   }
+  if (rest.includes("--no-serve")) {
+    const report = resolve(dir, "REPORT.html");
+    console.log(report);
+    return report;
+  }
   const url = serveReport(dir);
   console.log(url);
   if (!rest.includes("--no-open")) openPath(url);
@@ -343,4 +384,45 @@ function flagValue(_flags, rest, name) {
   return rest[i + 1];
 }
 
-main().catch((e) => die(e.message));
+function repositoryIdentity() {
+  const invoked = process.argv[1] ? resolve(process.argv[1]) : "";
+  const canonical = join(HERE, "cli.mjs");
+  if (!invoked || !existsSync(invoked) || !readFileSync(invoked).equals(readFileSync(canonical))) {
+    throw new Error("não foi possível verificar o executável imutável do WitnessQA");
+  }
+  const observed = spawnSync("git", ["-C", HERE, "rev-parse", "--verify", "HEAD"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const head = observed.status === 0 ? observed.stdout.trim() : "";
+  const status = spawnSync("git", ["-C", HERE, "status", "--porcelain=v1", "--untracked-files=all", "--", "."], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (!/^[a-f0-9]{40}$/.test(head) || status.status !== 0 || status.stdout.trim()) {
+    throw new Error("não foi possível verificar uma árvore imutável do WitnessQA");
+  }
+  const packageLock = readFileSync(join(HERE, "package-lock.json"));
+  return {
+    head_sha: head,
+    package_lock_sha256: createHash("sha256").update(packageLock).digest("hex"),
+  };
+}
+
+const VALUE_FLAGS = new Set(["--auth", "--base-url", "--job", "--jobs", "--max", "--max-nodes", "--out"]);
+
+export function positionalArgs(args) {
+  const positionals = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (VALUE_FLAGS.has(value)) {
+      index += 1;
+      continue;
+    }
+    if (!value.startsWith("--")) positionals.push(value);
+  }
+  return positionals;
+}
+
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (isMain) main().catch((e) => die(e.message));

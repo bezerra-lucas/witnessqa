@@ -16,3 +16,77 @@ jobs:
       - run: npm test
       - name: Fixture cover via CLI
         run: node cli.mjs --version
+
+  action-contract:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: pass
+            mode: run
+            scenario: test/fixtures/witness/home.yaml
+            base_url: http://127.0.0.1:8765
+            outcome: success
+            verdict: pass
+          - case: fail
+            mode: run
+            scenario: test/fixtures/witness/missing.yaml
+            base_url: http://127.0.0.1:8765
+            outcome: failure
+            verdict: fail
+          - case: blocked
+            mode: run
+            scenario: test/fixtures/witness/home.yaml
+            base_url: http://127.0.0.1:65530
+            outcome: failure
+            verdict: blocked
+          - case: blocked-discovery
+            mode: cover
+            scenario: test/fixtures/witness/home.yaml
+            base_url: http://127.0.0.1:65530
+            outcome: failure
+            verdict: blocked
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start fixture
+        run: |
+          PORT=8765 node test/fixtures/serve.mjs > /tmp/witnessqa-fixture.log 2>&1 &
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:8765/ > /dev/null && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Exercise local composite Action
+        id: witness
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: ${{ matrix.mode }}
+          scenarios: ${{ matrix.scenario }}
+          base-url: ${{ matrix.base_url }}
+          comment-pr: "false"
+          artifact-name: witnessqa-action-${{ matrix.case }}
+      - name: Download evidence published by the Action
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: witnessqa-action-${{ matrix.case }}
+          path: ${{ runner.temp }}/witnessqa-downloaded-${{ matrix.case }}
+      - name: Assert Action gate and output
+        if: always()
+        env:
+          ACTUAL_OUTCOME: ${{ steps.witness.outcome }}
+          ACTUAL_VERDICT: ${{ steps.witness.outputs.verdict }}
+          ACTUAL_ARTIFACT_PATH: ${{ steps.witness.outputs.artifact-path }}
+          ACTUAL_REPORT_PATH: ${{ steps.witness.outputs.report-path }}
+          EXPECTED_OUTCOME: ${{ matrix.outcome }}
+          EXPECTED_VERDICT: ${{ matrix.verdict }}
+          DOWNLOADED_REPORT: ${{ runner.temp }}/witnessqa-downloaded-${{ matrix.case }}/REPORT.html
+        run: |
+          test "$ACTUAL_OUTCOME" = "$EXPECTED_OUTCOME"
+          test "$ACTUAL_VERDICT" = "$EXPECTED_VERDICT"
+          test -f "$ACTUAL_ARTIFACT_PATH/REPORT.html"
+          test "$ACTUAL_REPORT_PATH" = "$ACTUAL_ARTIFACT_PATH/REPORT.html"
+          test -f "$ACTUAL_REPORT_PATH"
+          test -f "$DOWNLOADED_REPORT"

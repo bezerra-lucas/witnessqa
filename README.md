@@ -44,6 +44,18 @@ Manual YAML still works (`witnessqa run`). Prefer `cover` — it writes one scen
 
 `$WITNESS_EMAIL` / `$WITNESS_PASSWORD` expand in `fill.value`.
 
+Credentials must stay in a CI secret store or ephemeral environment variables;
+literal login values in tracked scenarios are rejected by the test suite. See
+[SECURITY.md](SECURITY.md) for session handling, evidence masking and migration.
+The verification record for this hardening is in the
+[0.2.0 security release note](docs/releases/0.2.0-security.md).
+
+Evidence is sanitized before it is written: form fields and configured private
+regions are masked in screenshots, HTML/scripts and common PII are redacted, and
+legacy unverified screenshots are not embedded into new reports. Mark additional
+app-specific regions with `data-witness-redact` or scenario
+`redaction.selectors`.
+
 ### BYOK (free)
 
 ```bash
@@ -53,10 +65,16 @@ export WITNESS_MODEL="openai/gpt-4o-mini"
 
 No key: runs still work, skip cause analysis.
 
+BYOK receives sanitized diagnostics without page HTML by default. Sending a
+sanitized HTML excerpt requires the explicit opt-in
+`WITNESS_BYOK_INCLUDE_HTML=true`.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `witnessqa --version-json` | Report the immutable `witnessqa-ci/v1` harness identity |
+| `witnessqa ci --job <json> --out <new-dir>` | Execute a frozen agent journey for native CI |
 | `witnessqa cover [url]` | Discover routes (nav + clicks + wizards), generate YAML, run, serve the dossier |
 | `witnessqa login [file]` | Save Playwright storageState |
 | `witnessqa run [names…]` | Run existing YAML |
@@ -65,6 +83,10 @@ No key: runs still work, skip cause analysis.
 | `witnessqa vdiff a b` | Pixel visual-diff of screenshots |
 | `witnessqa notify [run]` | Discord/Slack webhook on verdict |
 | `witnessqa list` | List scenarios |
+
+The native CI command is fail-closed, always requires a fresh output directory,
+and never turns collection alone into approval. See the complete
+[native CI interface and SHA-pinned installation guide](docs/native-ci.md).
 
 ## GitHub Action
 
@@ -78,7 +100,11 @@ No key: runs still work, skip cause analysis.
     discord-webhook: ${{ secrets.DISCORD_WEBHOOK }}
 ```
 
-Job fails only on **FAIL**. Artifact = full dossier. PR gets a comment.
+The public verdict/exit contract is: `pass`/`0`, `fail`/`1`, and
+`blocked`/`2`. The release job succeeds only on **PASS**; both **FAIL** and
+**BLOCKED** reject the gate. Internal warnings and unknown/empty results also
+fail closed. Sanitized evidence still uploads with `always()`, and the PR
+receives the verdict comment even when the gate is rejected.
 
 Docker (same CLI, CI/cloud):
 

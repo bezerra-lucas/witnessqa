@@ -1,0 +1,167 @@
+name: "WitnessQA"
+description: "Cover the app like a user and hand you the evidence"
+branding:
+  icon: "check-circle"
+  color: "green"
+
+inputs:
+  mode:
+    description: "cover (discover+run) or run (existing YAML)"
+    required: false
+    default: "cover"
+  base-url:
+    description: "App URL when mode=run, or single-target cover"
+    required: false
+    default: ""
+  scenarios:
+    description: "YAML dir/file for mode=run (default ./witness)"
+    required: false
+    default: "./witness"
+  auth:
+    description: "Playwright storageState JSON"
+    required: false
+    default: ""
+  api-key:
+    description: "BYOK key for root-cause (optional)"
+    required: false
+  model:
+    description: "LLM model for cause analysis"
+    required: false
+    default: "openai/gpt-4o-mini"
+  artifact-name:
+    description: "Evidence artifact name"
+    required: false
+    default: "witnessqa-report"
+  comment-pr:
+    description: "Post verdict as PR comment"
+    required: false
+    default: "true"
+  discord-webhook:
+    description: "Discord webhook for verdict alert"
+    required: false
+    default: ""
+
+outputs:
+  verdict:
+    description: "pass | fail | blocked"
+    value: ${{ steps.run.outputs.verdict }}
+  report-path:
+    description: "Path to REPORT.html"
+    value: ${{ steps.run.outputs.report-path }}
+  artifact-path:
+    description: "Path to the sanitized upload bundle"
+    value: ${{ steps.run.outputs.artifact-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install WitnessQA
+      shell: bash
+      run: |
+        npm install -g "${{ github.action_path }}"
+        npx playwright install chromium --with-deps
+
+    - name: Run WitnessQA
+      id: run
+      if: ${{ always() }}
+      shell: bash
+      env:
+        WITNESS_KEY: ${{ inputs.api-key }}
+        WITNESS_MODEL: ${{ inputs.model }}
+        WITNESS_DISCORD_WEBHOOK: ${{ inputs.discord-webhook }}
+        GH_TOKEN: ${{ github.token }}
+        WITNESS_GH_PR: ${{ github.event.pull_request.number }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_AUTH: ${{ inputs.auth }}
+        INPUT_BASE_URL: ${{ inputs.base-url }}
+        INPUT_SCENARIOS: ${{ inputs.scenarios }}
+      run: |
+        ACTION_ROOT=$(mktemp -d "${RUNNER_TEMP:-/tmp}/witnessqa-action.XXXXXX")
+        RUN_DIR="$ACTION_ROOT/run"
+        ARTIFACT_PATH="$ACTION_ROOT/upload"
+        export WITNESS_RUN_OUT="$RUN_DIR"
+        export WITNESS_COVER_OUT="$ACTION_ROOT/graph"
+        printf 'report-path=\n' >> "$GITHUB_OUTPUT"
+        printf 'artifact-path=%s\n' "$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+        printf 'verdict=fail\n' >> "$GITHUB_OUTPUT"
+        set +e
+        MODE="$INPUT_MODE"
+        AUTH="$INPUT_AUTH"
+        BASE="$INPUT_BASE_URL"
+        if [ "$MODE" = "cover" ]; then
+          ARGS=()
+          if [ -n "$BASE" ]; then ARGS+=("$BASE"); fi
+          if [ -n "$AUTH" ]; then ARGS+=(--auth "$AUTH"); fi
+          witnessqa cover "${ARGS[@]}" --no-open --no-serve
+        else
+          ARGS=("$INPUT_SCENARIOS")
+          if [ -n "$BASE" ]; then ARGS+=(--base-url "$BASE"); fi
+          if [ -n "$AUTH" ]; then ARGS+=(--auth "$AUTH"); fi
+          witnessqa run "${ARGS[@]}"
+        fi
+        CODE=$?
+        VERDICT=$(node "${{ github.action_path }}/worker/src/verdict.mjs" from-exit "$CODE")
+        case "$VERDICT" in
+          pass|fail|blocked) ;;
+          *) VERDICT=fail ;;
+        esac
+        node "${{ github.action_path }}/worker/src/notify.mjs" "$RUN_DIR" || true
+        FINAL_VERDICT=$(node "${{ github.action_path }}/worker/src/action-artifact.mjs" "$RUN_DIR" "$ARTIFACT_PATH" "$VERDICT")
+        case "$FINAL_VERDICT" in
+          pass|fail|blocked) VERDICT="$FINAL_VERDICT" ;;
+          *) VERDICT=fail ;;
+        esac
+        if [ ! -e "$ARTIFACT_PATH/REPORT.html" ] && [ ! -e "$ARTIFACT_PATH/EXPORT-FAILED.txt" ]; then
+          VERDICT=fail
+          mkdir -p "$ARTIFACT_PATH"
+          printf 'WitnessQA could not prepare the sanitized evidence bundle.\nVerdict: fail\n' > "$ARTIFACT_PATH/EXPORT-FAILED.txt"
+        fi
+        printf 'verdict=%s\n' "$VERDICT" >> "$GITHUB_OUTPUT"
+        if [ -f "$ARTIFACT_PATH/REPORT.html" ]; then
+          printf 'report-path=%s/REPORT.html\n' "$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+        fi
+        exit 0
+
+    - name: Enforce release gate
+      if: ${{ always() }}
+      shell: bash
+      env:
+        WITNESS_VERDICT: ${{ steps.run.outputs.verdict }}
+      run: |
+        node "${{ github.action_path }}/worker/src/verdict.mjs" gate "$WITNESS_VERDICT"
+
+    - name: Upload evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.run.outputs.artifact-path }}
+        if-no-files-found: error
+        retention-days: 30
+
+    - name: Comment on PR
+      if: ${{ always() && inputs.comment-pr == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        WITNESS_ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        WITNESS_VERDICT: ${{ steps.run.outputs.verdict }}
+        WITNESS_REPORT_PATH: ${{ steps.run.outputs.report-path }}
+        WITNESS_PR_NUMBER: ${{ github.event.number }}
+      run: |
+        VERDICT="$WITNESS_VERDICT"
+        REPORT="$WITNESS_REPORT_PATH"
+        if [ -n "$REPORT" ]; then
+          REPORT_LINE="Report path: \`$REPORT\`"
+        else
+          REPORT_LINE="Report unavailable; inspect the artifact for exporter diagnostics."
+        fi
+        BODY="## WitnessQA · ${VERDICT^^}
+        Evidence artifact: **${WITNESS_ARTIFACT_NAME}**.
+        ${REPORT_LINE}
+        <sub>evidence, not promises</sub>"
+        gh pr comment "$WITNESS_PR_NUMBER" --body "$BODY"

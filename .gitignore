@@ -1,6 +1,7 @@
-node_modules/
+node_modules
 .witness/
 runs/
 *.log
 .env
 .DS_Store
+/witnessqa

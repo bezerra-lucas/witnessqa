@@ -9,9 +9,10 @@
  *
  * Uso: node src/cover.mjs <url> [--auth file] [--out dir] [--max 80]
  */
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { launchBrowser } from "./browser.mjs";
+import { createEvidenceGuard } from "./privacy.mjs";
 
 const ERROR_MARKERS = [
   "Não foi possível carregar",
@@ -158,11 +159,11 @@ async function inspect(page) {
     const title = document.title || "";
     const heading = (h1 || h2 || "").replace(/\s+/g, " ").slice(0, 80);
     const errors = markers.filter((m) => body.includes(m));
-    const token = (heading.split(/\s+/).find((w) => w.length >= 4) || heading).slice(0, 40);
+    const assertionText = (heading.split(/\s+/).find((w) => w.length >= 4) || heading).slice(0, 40);
     return {
       title,
       heading,
-      token,
+      assertionText,
       errors,
       url: location.href,
     };
@@ -173,6 +174,7 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
   mkdirSync(outDir, { recursive: true });
   mkdirSync(join(outDir, "witness"), { recursive: true });
   const origin = new URL(startUrl).origin;
+  const guard = createEvidenceGuard();
   const browser = await launchBrowser();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 950 },
@@ -211,10 +213,10 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
       await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => {});
       await dismiss(page);
       await page.waitForTimeout(600);
-      const info = await inspect(page);
-      const links = await harvest(page, origin);
+      const info = Object.fromEntries(Object.entries(await inspect(page)).map(([key, value]) => [key, guard.redactText(value)]));
+      const links = (await harvest(page, origin)).map((link) => ({ ...link, href: guard.redactText(link.href), text: guard.redactText(link.text) }));
       pages.push({ url, ...info, links: links.length });
-      await page.screenshot({ path: join(outDir, `${slug(url)}.png`), fullPage: false }).catch(() => {});
+      await guard.captureScreenshot(page, join(outDir, `${slug(url)}.png`), { fullPage: false });
       for (const l of links) {
         edges.push({ from: url, to: l.href, text: l.text, via: l.via });
         if (!visited.has(l.href) && !queue.includes(l.href)) queue.push(l.href);
@@ -234,7 +236,7 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
         await dismiss(page);
       }
     } catch (err) {
-      pages.push({ url, error: String(err).split("\n")[0].slice(0, 200), heading: "", token: "", errors: [] });
+      pages.push({ url: guard.redactText(url), error: guard.redactText(String(err).split("\n")[0].slice(0, 200)), heading: "", assertionText: "", errors: [] });
     }
   }
 
@@ -243,7 +245,7 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
   const yamls = [];
   for (const p of pages) {
     if (p.error) continue;
-    const token = p.token && p.token.length >= 3 ? p.token : null;
+    const assertionText = p.assertionText && p.assertionText.length >= 3 ? p.assertionText : null;
     const path = new URL(p.url).pathname || "/";
     const title = (p.heading || path.replace(/\/$/, "") || "tela").trim();
     const name = prefix ? `${prefix} · ${title}` : title;
@@ -257,13 +259,13 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
       `  - goto: ${p.url}`,
       "  - wait: 2000",
     ];
-    if (token) lines.push(`  - expectText: ${JSON.stringify(token)}`);
+    if (assertionText) lines.push(`  - expectText: ${JSON.stringify(assertionText)}`);
     for (const err of ERROR_MARKERS.slice(0, 3)) {
       lines.push(`  - expectNoText: ${JSON.stringify(err)}`);
     }
     lines.push("checks:", "  - noBrokenImages", "");
     const file = join(outDir, "witness", `${prefix ? `${prefix}-` : ""}${slug(p.url)}.yaml`);
-    writeFileSync(file, lines.join("\n"));
+    guard.writeText(file, lines.join("\n"));
     yamls.push(file);
   }
 
@@ -276,8 +278,8 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
     pages,
     edges,
   };
-  writeFileSync(join(outDir, "coverage.json"), JSON.stringify(graph, null, 2));
-  return { ...graph, yamls, outDir };
+  const safeGraph = guard.writeJson(join(outDir, "coverage.json"), graph);
+  return { ...safeGraph, yamls, outDir };
 }
 
 const isCli = process.argv[1] && /cover\.mjs$/.test(process.argv[1].replace(/\\/g, "/"));
@@ -297,5 +299,8 @@ if (isCli) {
   console.log(`cover: ${r.discovered} telas · ${r.generated} YAMLs · ${r.edges.length} arestas`);
   for (const p of r.pages) {
     console.log(`  ${p.error ? "✗" : "✓"} ${p.url}  ${p.heading || p.error || ""}`);
+  }
+  if (r.pages.some((page) => page.error) || r.generated === 0) {
+    process.exitCode = 2;
   }
 }

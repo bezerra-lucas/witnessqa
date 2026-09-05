@@ -355,7 +355,7 @@
         </details>
         <details>
           <summary>Is my application data safe?</summary>
-          <div class="faq-a">You provide dedicated test credentials and a staging or production-read-only environment. Evidence is stored encrypted, never used for training, and deleted on request. SOC 2 is on the roadmap.</div>
+          <div class="faq-a">Today the open-source CLI runs on your own machine or CI and stores evidence locally. New evidence is sanitized before persistence: form fields and configured private regions are masked, common credentials and PII are redacted, and legacy screenshots are excluded. BYOK sends sanitized diagnostics only; HTML is opt-in. You control retention by deleting local runs or CI artifacts. See SECURITY.md for limits and safe setup.</div>
         </details>
         <details>
           <summary>What happens when the agent finds a bug?</summary>

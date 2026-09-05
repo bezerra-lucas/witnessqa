@@ -9,12 +9,16 @@
     .ok { color: #0E6B3D; }
     .err { color: #B3261E; display: none; }
     button { padding: 8px 16px; }
+    .custom-private { position: fixed; left: 20px; top: 240px; width: 200px; height: 40px; }
+    #private-email { position: fixed; left: 20px; top: 300px; width: 200px; height: 40px; }
+    #private-frame { position: fixed; left: 250px; top: 300px; width: 220px; height: 80px; }
   </style>
 </head>
 <body>
   <h1>Witness Shop</h1>
   <p id="lede">A tiny store used as a WitnessQA fixture.</p>
   <a href="/cart.html">Go to cart</a>
+  <a href="/broken.html" hidden>Broken fixture</a>
   <button id="add" type="button">Add to cart</button>
   <span class="cart-badge" hidden>0</span>
   <script>
@@ -23,6 +27,17 @@
       b.hidden = false;
       b.textContent = String(Number(b.textContent || 0) + 1);
     });
+  </script>
+  <section id="privacy-fixture">
+    <label>Email <input id="private-email" type="email"></label>
+    <p class="customer-name" data-witness-redact>Fixture Private Person</p>
+    <p class="custom-private" hidden>Fixture Custom Selector Private</p>
+  </section>
+  <iframe id="private-frame" srcdoc="<p>Embedded private payment data</p>"></iframe>
+  <script>
+    const customPrivate = document.querySelector('.custom-private');
+    if (new URLSearchParams(location.search).has('privacy')) customPrivate.hidden = false;
+    else customPrivate.remove();
   </script>
 </body>
 </html>

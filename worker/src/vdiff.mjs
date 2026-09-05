@@ -6,6 +6,8 @@ import { readdirSync, readFileSync, existsSync, writeFileSync, mkdirSync } from 
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { PRIVACY_VERSION } from "./privacy.mjs";
+import { safeEvidencePath } from "./safe-evidence-path.mjs";
 
 const req = createRequire(import.meta.url);
 
@@ -14,8 +16,18 @@ function listShots(runDir) {
   if (!runDir || !existsSync(runDir)) return out;
   for (const flow of readdirSync(runDir, { withFileTypes: true }).filter((d) => d.isDirectory())) {
     const dir = join(runDir, flow.name);
-    for (const f of readdirSync(dir).filter((n) => /\.png$/i.test(n))) {
-      out.push({ flow: flow.name, name: f, path: join(dir, f) });
+    const resultPath = safeEvidencePath(dir, "result.json", { extension: ".json" });
+    if (!resultPath) continue;
+    let result;
+    try {
+      result = JSON.parse(readFileSync(resultPath, "utf8"));
+    } catch {
+      continue;
+    }
+    if (result.privacyVersion !== PRIVACY_VERSION || !Array.isArray(result.screenshots)) continue;
+    for (const name of result.screenshots) {
+      const path = safeEvidencePath(dir, name, { extension: ".png" });
+      if (path) out.push({ flow: flow.name, name, path });
     }
   }
   return out;
@@ -29,17 +41,23 @@ function tryPixelmatch(aPath, bPath, diffPath) {
   let PNG, pixelmatch;
   try {
     PNG = req("pngjs").PNG;
-    pixelmatch = req("pixelmatch");
+    const pixelmatchModule = req("pixelmatch");
+    pixelmatch = pixelmatchModule.default ?? pixelmatchModule;
   } catch {
     return null;
   }
-  const a = PNG.sync.read(readFileSync(aPath));
-  const b = PNG.sync.read(readFileSync(bPath));
+  let a, b;
+  try {
+    a = PNG.sync.read(readFileSync(aPath));
+    b = PNG.sync.read(readFileSync(bPath));
+  } catch {
+    return null;
+  }
   if (a.width !== b.width || a.height !== b.height) {
     return { changed: true, pct: 100, reason: "size" };
   }
   const diff = new PNG({ width: a.width, height: a.height });
-  const n = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.1 });
+  const n = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.1, diffMask: true });
   const pct = (n / (a.width * a.height)) * 100;
   if (diffPath && pct > 0) {
     mkdirSync(join(diffPath, ".."), { recursive: true });
@@ -83,13 +101,22 @@ export function visualDiff(aDir, bDir, outDir) {
 export function renderVdiffHtml(d) {
   const li = d.rows
     .filter((r) => r.status !== "same")
-    .map((r) => `<li><b>${r.status}</b> ${r.key}${r.pct != null ? ` (${r.pct.toFixed(2)}%)` : ""}</li>`)
+    .map((r) => `<li><b>${esc(r.status)}</b> ${esc(r.key)}${r.pct != null ? ` (${r.pct.toFixed(2)}%)` : ""}</li>`)
     .join("");
   return `<!DOCTYPE html><html lang="pt-BR"><meta charset="utf-8"><title>WitnessQA visual-diff</title>
 <style>body{font:16px Archivo,sans-serif;background:#F4F1EA;color:#17150F;padding:32px;max-width:800px;margin:auto}</style>
 <h1>Visual-diff</h1>
 <p>${d.changed} mudaram · ${d.added} novas · ${d.removed} sumiram · ${d.compared} comparadas</p>
 <ul>${li || "<li>nenhuma diferença</li>"}</ul></html>`;
+}
+
+function esc(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 const isCli = process.argv[1] && /vdiff\.mjs$/.test(String(process.argv[1]).replace(/\\/g, "/"));

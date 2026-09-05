@@ -18,9 +18,10 @@
  * Saída: grafo em JSON + um cenário YAML por branch significativa, prontos
  * para o worker rodar como regressão nas próximas runs.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { createEvidenceGuard } from "./privacy.mjs";
 
 const DEFAULTS = {
   maxNodes: 40,
@@ -31,6 +32,7 @@ const DEFAULTS = {
 
 export async function exploreGraph({ startUrl, outDir, options = {} }) {
   const cfg = { ...DEFAULTS, ...options };
+  const guard = createEvidenceGuard();
   mkdirSync(outDir, { recursive: true });
 
   const graph = {
@@ -59,12 +61,12 @@ export async function exploreGraph({ startUrl, outDir, options = {} }) {
     graph.agentsSpawned++;
     const agent = await spawnSubagent(browser, graph, key, { viewport: cfg.viewport });
     if (!agent.ok) {
-      graph.blockedNodes.push({ url: job.url, error: agent.error });
+      graph.blockedNodes.push(guard.redact({ url: job.url, error: agent.error }));
       continue;
     }
 
     for (const edge of agent.edges) {
-      graph.edges.push(edge);
+      graph.edges.push(guard.redact(edge));
       const targetKey = normalizeUrl(edge.to);
       if (!visited.has(targetKey)) {
         queue.push({
@@ -84,11 +86,12 @@ export async function exploreGraph({ startUrl, outDir, options = {} }) {
 
   await browser.close();
 
-  writeFileSync(join(outDir, "graph.json"), JSON.stringify(serialize(graph), null, 2));
+  const serialized = serialize(graph);
+  guard.writeJson(join(outDir, "graph.json"), serialized);
   for (const [i, scenario] of graph.branches.entries()) {
-    writeFileSync(join(outDir, `branch-${String(i).padStart(2, "0")}.yaml`), scenario.yaml);
+    guard.writeText(join(outDir, `branch-${String(i).padStart(2, "0")}.yaml`), scenario.yaml);
   }
-  return serialize(graph);
+  return guard.redact(serialized);
 }
 
 async function spawnSubagent(browser, graph, nodeKey, { viewport }) {

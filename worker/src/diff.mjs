@@ -5,14 +5,22 @@
 import { readdirSync, readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { classifyFlow, displayTitle, displayPath } from "./classify.mjs";
+import { createEvidenceGuard } from "./privacy.mjs";
+import { safeEvidencePath } from "./safe-evidence-path.mjs";
 
 function loadFlows(dir) {
   const map = new Map();
+  const guard = createEvidenceGuard();
   if (!dir || !existsSync(dir)) return map;
   for (const name of readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)) {
-    const rf = join(dir, name, "result.json");
-    if (!existsSync(rf)) continue;
-    const r = JSON.parse(readFileSync(rf, "utf8"));
+    const rf = safeEvidencePath(join(dir, name), "result.json", { extension: ".json" });
+    if (!rf) continue;
+    let r;
+    try {
+      r = guard.redact(JSON.parse(readFileSync(rf, "utf8")));
+    } catch {
+      continue;
+    }
     const status = classifyFlow(r);
     const key = displayPath(r) || name;
     map.set(key, { ...r, dir: name, status, title: displayTitle(r), path: key });

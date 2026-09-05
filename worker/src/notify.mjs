@@ -9,14 +9,16 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { classifyFlow, summarize, displayTitle } from "./classify.mjs";
+import { createEvidenceGuard } from "./privacy.mjs";
 
 export function loadRunSummary(runDir) {
+  const guard = createEvidenceGuard();
   const flows = [];
   if (!runDir || !existsSync(runDir)) return { flows, stamp: "EMPTY", counts: {} };
   for (const name of readdirSync(runDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)) {
     const rf = join(runDir, name, "result.json");
     if (!existsSync(rf)) continue;
-    const r = JSON.parse(readFileSync(rf, "utf8"));
+    const r = guard.redact(JSON.parse(readFileSync(rf, "utf8")));
     const status = classifyFlow(r);
     flows.push({ ...r, status, title: displayTitle(r) });
   }
@@ -24,16 +26,17 @@ export function loadRunSummary(runDir) {
 }
 
 export function formatSummary(s, { url } = {}) {
+  const guard = createEvidenceGuard();
   const c = s.counts ?? {};
   const fails = (s.flows ?? []).filter((f) => f.status === "fail").slice(0, 8);
   const lines = [
     `**WitnessQA · ${s.stamp}**`,
     `${c.pass ?? 0} pass · ${c.fail ?? 0} fail · ${c.warn ?? 0} warn · ${c.blocked ?? 0} blocked · ${c.skip ?? 0} skip`,
   ];
-  if (url) lines.push(url);
+  if (url) lines.push(guard.redactText(url));
   if (fails.length) {
     lines.push("", "Falhas:");
-    for (const f of fails) lines.push(`- ${f.title}`);
+    for (const f of fails) lines.push(`- ${guard.redactText(f.title)}`);
   }
   return lines.join("\n");
 }

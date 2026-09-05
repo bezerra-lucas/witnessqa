@@ -9,6 +9,7 @@
  * Sem WITNESS_KEY o worker funciona normal, só sem a análise de causa.
  */
 import { readFileSync } from "node:fs";
+import { createEvidenceGuard } from "./privacy.mjs";
 
 export function byokConfigured() {
   return Boolean(process.env.WITNESS_KEY);
@@ -18,25 +19,27 @@ export function byokConfigured() {
  * Analisa uma falha: recebe result do executor + snippets de evidência,
  * devolve { cause, isBug, confidence, suggestion } ou null se BYOK off.
  */
-export async function investigateFailure(result, evidenceDir) {
+export async function investigateFailure(result, evidenceDir, { fetchImpl = globalThis.fetch, guard = createEvidenceGuard() } = {}) {
   if (!byokConfigured()) return null;
 
-  const consoleTail = (result.consoleErrors ?? []).slice(-5);
-  const failingStep = result.steps.find((s) => !s.ok);
+  const safeResult = guard.redact(result);
+  const consoleTail = (safeResult.consoleErrors ?? []).slice(-5);
+  const failingStep = safeResult.steps.find((s) => !s.ok);
 
-  // HTML snippet da página no momento do print da falha (se existir dump)
   let htmlSnippet = "";
-  try {
-    htmlSnippet = readFileSync(`${evidenceDir}/page.html`, "utf8").slice(0, 3000);
-  } catch {
-    /* opcional */
+  if (process.env.WITNESS_BYOK_INCLUDE_HTML === "true") {
+    try {
+      htmlSnippet = guard.sanitizeHtml(readFileSync(`${evidenceDir}/page.html`, "utf8")).slice(0, 3000);
+    } catch {
+      /* opt-in e opcional */
+    }
   }
 
   const prompt = `Você é um engenheiro de QA sênior. Um agente automatizado testou um fluxo web e falhou.
 
-Fluxo: ${result.name}
+Fluxo: ${safeResult.name}
 Step que falhou (${failingStep?.index ?? "?"}): ${JSON.stringify(failingStep?.step)}
-Detalhe: ${failingStep?.detail ?? result.failure?.message ?? "n/a"}
+Detalhe: ${failingStep?.detail ?? safeResult.failure?.message ?? "n/a"}
 
 Console errors recentes:
 ${consoleTail.map((e) => `- ${e}`).join("\n") || "(nenhum)"}
@@ -51,7 +54,11 @@ Responda EM JSON puro (sem markdown):
 }`;
 
   try {
-    const res = await fetch(`${process.env.WITNESS_BASE ?? "https://openrouter.ai/api/v1"}/chat/completions`, {
+    const base = new URL(process.env.WITNESS_BASE ?? "https://openrouter.ai/api/v1");
+    if (base.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(base.hostname)) {
+      return { cause: "(BYOK recusou endpoint sem HTTPS)", isBug: null, confidence: 0, suggestion: "" };
+    }
+    const res = await fetchImpl(`${base.toString().replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.WITNESS_KEY}`,
@@ -69,8 +76,14 @@ Responda EM JSON puro (sem markdown):
     const data = await res.json();
     const text = data.choices?.[0]?.message?.content ?? "";
     const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
-    return JSON.parse(json);
+    const parsed = JSON.parse(json);
+    return guard.redact({
+      cause: String(parsed.cause ?? "").slice(0, 600),
+      isBug: typeof parsed.isBug === "boolean" ? parsed.isBug : null,
+      confidence: Number.isFinite(Number(parsed.confidence)) ? Math.max(0, Math.min(1, Number(parsed.confidence))) : 0,
+      suggestion: String(parsed.suggestion ?? "").slice(0, 400),
+    });
   } catch (err) {
-    return { cause: `(BYOK falhou: ${String(err).split("\n")[0].slice(0, 120)})`, isBug: null, confidence: 0, suggestion: "" };
+    return guard.redact({ cause: `(BYOK falhou: ${String(err).split("\n")[0].slice(0, 120)})`, isBug: null, confidence: 0, suggestion: "" });
   }
 }

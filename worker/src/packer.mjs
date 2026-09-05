@@ -8,6 +8,8 @@ import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyFlow, describeFlow, summarize, displayTitle, displayGroup, displayPath, cleanErrors } from "./classify.mjs";
+import { createEvidenceGuard, PRIVACY_VERSION } from "./privacy.mjs";
+import { safeEvidencePath } from "./safe-evidence-path.mjs";
 
 export function packRun(runDir) {
   const roots = (Array.isArray(runDir) ? runDir : [runDir]).filter((d) => d && existsSync(d));
@@ -15,20 +17,26 @@ export function packRun(runDir) {
 
   const seen = new Set();
   const flows = [];
+  const guard = createEvidenceGuard();
+  let legacyScreenshotsOmitted = 0;
   for (const run of roots) {
     const flowDirs = readdirSync(run, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
       .sort();
     for (const dir of flowDirs) {
-      const rf = join(run, dir, "result.json");
-      if (!existsSync(rf) || seen.has(dir)) continue;
+      const rf = safeEvidencePath(join(run, dir), "result.json", { extension: ".json" });
+      if (!rf || seen.has(dir)) continue;
       seen.add(dir);
-      const r = JSON.parse(readFileSync(rf, "utf8"));
+      const r = guard.redact(JSON.parse(readFileSync(rf, "utf8")));
       const shots = [];
-      for (const s of r.screenshots ?? []) {
-        const p = join(run, dir, s);
-        if (existsSync(p)) shots.push({ name: s, b64: readFileSync(p).toString("base64") });
+      if (r.privacyVersion === PRIVACY_VERSION) {
+        for (const s of r.screenshots ?? []) {
+          const p = safeEvidencePath(join(run, dir), s, { extension: ".png" });
+          if (p) shots.push({ name: s, b64: readFileSync(p).toString("base64") });
+        }
+      } else {
+        legacyScreenshotsOmitted += (r.screenshots ?? []).length;
       }
       const status = classifyFlow(r);
       flows.push({ ...r, dir, shots, status, what: r.what || describeFlow(r) });
@@ -239,6 +247,7 @@ export function packRun(runDir) {
 ${counts.skip ? `<section><div class="sec-label">§ Nota sobre os SKIPs</div><div class="note"><span class="tag">Comportamento esperado, não bug</span>Cenários marcados como SKIP usam sessão auth válida (storageState), então o app redireciona antes de mostrar o formulário de login. Para validar o form de verdade, rode com cookie limpo.</div></section>` : ""}
 ${counts.blocked ? `<section><div class="sec-label">§ Nota sobre BLOCKED</div><div class="note"><span class="tag">Infra do testemunha, não necessariamente o app</span>O Chromium caiu (Target crashed / OOM) ao abrir ou fotografar a página. Dashboard pesado com screenshot full-page era a causa clássica nas runs v3. Não trate BLOCKED como regressão do produto até reproduzir à mão.</div></section>` : ""}
 ${counts.warn ? `<section><div class="sec-label">§ Nota sobre os WARNs</div><div class="note"><span class="tag">Funcional com ruído</span>O fluxo carrega e valida, mas registra console errors ou respostas 4xx/5xx. Vale investigar no card correspondente.</div></section>` : ""}
+${legacyScreenshotsOmitted ? `<section><div class="sec-label">§ Privacidade</div><div class="note"><span class="tag">Captura legada omitida</span>${legacyScreenshotsOmitted} screenshot(s) sem marca de sanitização não foram incorporados ao laudo.</div></section>` : ""}
 
 <footer><span>WitnessQA — evidence, not promises.</span><span>gerado em ${esc(new Date().toISOString())}</span></footer>
 </div></div>
@@ -397,7 +406,9 @@ function esc(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 const isMain =

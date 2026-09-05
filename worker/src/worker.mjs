@@ -2,13 +2,15 @@
  * WitnessQA worker — roda uma lista de cenários contra um app e gera o relatório.
  * `node src/worker.mjs scenarios/ --base-url https://app.com --out runs/<ts>`
  */
-import { readdirSync, mkdirSync, readFileSync, writeFileSync, statSync, existsSync } from "node:fs";
+import { readdirSync, mkdirSync, readFileSync, statSync, existsSync, unlinkSync } from "node:fs";
 import { join, basename } from "node:path";
 import yaml from "yaml";
 import { parseScenario } from "./scenario.mjs";
 import { runScenario } from "./executor.mjs";
 import { investigateFailure, byokConfigured } from "./byok.mjs";
 import { packRun } from "./packer.mjs";
+import { createEvidenceGuard } from "./privacy.mjs";
+import { isKnownFlowVerdict, normalizeFlowResult, workerExitCode } from "./verdict.mjs";
 
 function arg(flag, fallback) {
   const i = process.argv.indexOf(flag);
@@ -63,26 +65,37 @@ const results = [];
 
 async function runOne(file) {
   const scenario = parseScenario(readFileSync(file, "utf8"), yaml);
+  const guard = createEvidenceGuard({ scenario });
   const evidenceDir = join(outDir, basename(file).replace(/\.(ya?ml|json)$/, ""));
   const prev = join(evidenceDir, "result.json");
   if (!force && existsSync(prev)) {
-    const result = JSON.parse(readFileSync(prev, "utf8"));
-    console.log(`▶ ${scenario.name}\n  · resume ${result.verdict?.toUpperCase?.() ?? "?"}`);
-    results.push(result);
-    return;
+    const previous = JSON.parse(readFileSync(prev, "utf8"));
+    if (previous.privacyVersion === guard.privacyVersion && isKnownFlowVerdict(previous.verdict)) {
+      const result = guard.redact(previous);
+      console.log(`▶ ${scenario.name}\n  · resume ${result.verdict?.toUpperCase?.() ?? "?"}`);
+      results.push(result);
+      return;
+    }
+    discardLegacyEvidence(evidenceDir);
+    const reason = previous.privacyVersion === guard.privacyVersion ? "veredito inválido" : "evidência legada";
+    console.log(`▶ ${scenario.name}\n  · ${reason}; descartando e reexecutando`);
   }
   console.log(`▶ ${scenario.name}`);
-  const result = await runScenario(scenario, { evidenceDir, baseUrl, authFile: authFile || undefined, headed });
+  let result = await runScenario(scenario, { evidenceDir, baseUrl, authFile: authFile || undefined, headed });
+  const normalized = normalizeFlowResult(result);
+  if (normalized !== result) {
+    result = guard.writeJson(join(evidenceDir, "result.json"), normalized);
+  }
   const icon = result.verdict === "pass" ? "✓" : result.verdict === "blocked" ? "■" : "✗";
   console.log(`  ${icon} ${result.verdict.toUpperCase()} (${result.steps.length} steps)`);
-  if (result.failure) console.log(`    └ ${JSON.stringify(result.failure).slice(0, 200)}`);
+  if (result.failure) console.log(`    └ ${JSON.stringify(guard.redact(result.failure)).slice(0, 200)}`);
 
   if (result.verdict !== "pass") {
-    const analysis = await investigateFailure(result, evidenceDir);
+    const analysis = await investigateFailure(result, evidenceDir, { guard });
     if (analysis) {
       result.analysis = analysis;
-      writeFileSync(join(evidenceDir, "result.json"), JSON.stringify(result, null, 2));
-      console.log(`    └ causa: ${analysis.cause} (bug=${analysis.isBug}, confiança=${analysis.confidence})`);
+      guard.writeJson(join(evidenceDir, "result.json"), result);
+      console.log(`    └ causa: ${guard.redactText(analysis.cause)} (bug=${analysis.isBug}, confiança=${analysis.confidence})`);
     }
   }
   results.push(result);
@@ -102,23 +115,31 @@ await Promise.all(workers);
 
 const failed = results.filter((r) => r.verdict === "fail");
 const blocked = results.filter((r) => r.verdict === "blocked");
+const warned = results.filter((r) => r.verdict === "warn");
 let report = `# WitnessQA Run — ${new Date().toISOString()}\n\n`;
-report += `**Veredito geral:** ${failed.length === 0 && blocked.length === 0 ? "PASS" : `${failed.length} fail / ${blocked.length} blocked / ${results.length} total`}\n\n`;
+report += `**Veredito geral:** ${workerExitCode(results) === 0 ? "PASS" : `${failed.length} fail / ${blocked.length} blocked / ${warned.length} warn / ${results.length} total`}\n\n`;
 for (const r of results) {
   report += `## ${r.verdict.toUpperCase()} ${r.name}\n`;
   for (const s of r.steps) {
     report += `- ${s.ok ? "ok" : "FALHOU"} step ${s.index}: \`${JSON.stringify(s.step)}\`${s.detail ? ` — ${s.detail}` : ""} (evidência: ${s.screenshot})\n`;
   }
-  if (r.consoleErrors.length) report += `\n**Console errors:**\n${r.consoleErrors.map((e) => `- ${e}`).join("\n")}\n`;
+  if ((r.consoleErrors ?? []).length) report += `\n**Console errors:**\n${r.consoleErrors.map((e) => `- ${e}`).join("\n")}\n`;
   if (r.networkErrors?.length) report += `\n**Rede:**\n${r.networkErrors.map((e) => `- ${e}`).join("\n")}\n`;
-  if (r.brokenImages.length) report += `\n**Imagens quebradas:**\n${r.brokenImages.map((e) => `- ${e}`).join("\n")}\n`;
+  if ((r.brokenImages ?? []).length) report += `\n**Imagens quebradas:**\n${r.brokenImages.map((e) => `- ${e}`).join("\n")}\n`;
   if (r.analysis) {
     report += `\n**Investigação de causa (BYOK):**\n- Causa: ${r.analysis.cause}\n- Bug do app: ${r.analysis.isBug ?? "?"} (confiança ${r.analysis.confidence})\n- Sugestão: ${r.analysis.suggestion}\n`;
   }
   report += "\n";
 }
 if (byokConfigured()) report += `---\n*Análise de causa por LLM via BYOK (${process.env.WITNESS_MODEL ?? "openai/gpt-4o-mini"}).*\n`;
-writeFileSync(join(outDir, "REPORT.md"), report);
+createEvidenceGuard().writeText(join(outDir, "REPORT.md"), report);
+
+function discardLegacyEvidence(evidenceDir) {
+  for (const name of readdirSync(evidenceDir)) {
+    if (!/^(?:result\.json|page\.html|url\.txt|.+\.png)$/.test(name)) continue;
+    unlinkSync(join(evidenceDir, name));
+  }
+}
 
 try {
   const packed = packRun(outDir);
@@ -127,4 +148,4 @@ try {
   console.log(`\nrelatório md: ${join(outDir, "REPORT.md")}  (html falhou: ${e.message})`);
 }
 
-process.exitCode = failed.length ? 1 : blocked.length ? 2 : 0;
+process.exitCode = workerExitCode(results);
