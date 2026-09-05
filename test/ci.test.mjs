@@ -24,6 +24,15 @@ function writeJson(path, value) {
   return sha256(data);
 }
 
+function withUmask(mask, operation) {
+  const previous = process.umask(mask);
+  try {
+    return operation();
+  } finally {
+    process.umask(previous);
+  }
+}
+
 function waitForServerPort(server, ms = 8000) {
   return new Promise((resolve, reject) => {
     let output = "";
@@ -133,18 +142,20 @@ test("ci executes a real planned journey and emits a sanitized result bound to i
     const output = join(directory, "output");
     const fixture = makeRequest(directory, port);
 
-    const completed = spawnSync(
-      join(harness, "witnessqa"),
-      ["ci", "--job", fixture.requestPath, "--out", output],
-      {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
-          WITNESS_CI_SCENARIO_DIR: fixture.scenarios,
+    const completed = withUmask(0o002, () =>
+      spawnSync(
+        join(harness, "witnessqa"),
+        ["ci", "--job", fixture.requestPath, "--out", output],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
+            WITNESS_CI_SCENARIO_DIR: fixture.scenarios,
+          },
+          timeout: 60_000,
         },
-        timeout: 60_000,
-      },
+      ),
     );
 
     assert.equal(completed.status, 0, completed.stderr || completed.stdout);
@@ -165,9 +176,11 @@ test("ci executes a real planned journey and emits a sanitized result bound to i
       ["json", "screenshot", "html", "url", "report"],
     );
     for (const evidence of result.criteria[0].evidence) {
-      const bytes = readFileSync(join(output, evidence.path));
+      const evidencePath = join(output, evidence.path);
+      const bytes = readFileSync(evidencePath);
       assert.equal(evidence.sha256, sha256(bytes));
       assert.equal(evidence.privacy_version, 1);
+      assert.equal(statSync(evidencePath).mode & 0o022, 0, `${evidence.path} is group/world writable`);
     }
     const observation = readFileSync(join(output, result.observation.path));
     assert.equal(result.observation.sha256, sha256(observation));
@@ -321,7 +334,7 @@ test("ci blocks an unknown evidence kind without losing the trusted identities",
   assert.deepEqual(result.subject, { head_sha: fixture.headSha });
   assert.deepEqual(result.inputs, { dod_sha256: dodSha, plan_sha256: planSha });
   assert.match(result.harness.head_sha, /^[a-f0-9]{40}$/);
-  assert.equal(result.harness.version, "0.3.0");
+  assert.equal(result.harness.version, "0.3.1");
   assert.equal(result.harness.package_lock_sha256, sha256(readFileSync(join(harness, "package-lock.json"))));
   assert.deepEqual(result.execution, { kind: "agent-journey", cover_only: false, flow_count: 0 });
 });

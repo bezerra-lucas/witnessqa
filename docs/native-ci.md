@@ -21,7 +21,7 @@ gate outside WitnessQA.
 {
   "schema": "witnessqa-version/v1",
   "interface": "witnessqa-ci/v1",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "head_sha": "0000000000000000000000000000000000000000",
   "package_lock_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
 }

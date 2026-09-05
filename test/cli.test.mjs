@@ -6,8 +6,11 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } fr
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { positionalArgs } from "../cli.mjs";
 import { cleanHarness as copyCleanHarness } from "./helpers/clean-harness.mjs";
+
+const umaskBeforeCliImport = process.umask();
+const { positionalArgs } = await import("../cli.mjs");
+const umaskAfterCliImport = process.umask();
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(root, "cli.mjs");
@@ -20,10 +23,14 @@ function cleanHarness() {
   return copyCleanHarness(root);
 }
 
+test("importing CLI helpers does not change the caller umask", () => {
+  assert.equal(umaskAfterCliImport, umaskBeforeCliImport);
+});
+
 test("cli --version", () => {
   const r = run(["--version"]);
   assert.equal(r.status, 0);
-  assert.equal(r.stdout.trim(), "0.3.0");
+  assert.equal(r.stdout.trim(), "0.3.1");
 });
 
 test("cli --version-json identifies the immutable CI interface and checkout", () => {
@@ -39,7 +46,7 @@ test("cli --version-json identifies the immutable CI interface and checkout", ()
   assert.deepEqual(JSON.parse(r.stdout), {
     schema: "witnessqa-version/v1",
     interface: "witnessqa-ci/v1",
-    version: "0.3.0",
+    version: "0.3.1",
     head_sha: expectedHead,
     package_lock_sha256: createHash("sha256").update(readFileSync(join(harness, "package-lock.json"))).digest("hex"),
   });

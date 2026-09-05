@@ -18,7 +18,7 @@ import { platform } from "node:os";
 import YAML from "yaml";
 import { executeCi } from "./worker/src/ci.mjs";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 const SCENARIO_DIR = "witness";
 const RUNS_DIR = ".witness/runs";
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -425,4 +425,9 @@ export function positionalArgs(args) {
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
-if (isMain) main().catch((e) => die(e.message));
+if (isMain) {
+  // Evidence must stay private even when the invoking shell uses a
+  // collaborative umask. Child workers inherit this restriction.
+  process.umask(0o077);
+  main().catch((e) => die(e.message));
+}
