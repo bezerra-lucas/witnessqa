@@ -30,7 +30,7 @@ test("importing CLI helpers does not change the caller umask", () => {
 test("cli --version", () => {
   const r = run(["--version"]);
   assert.equal(r.status, 0);
-  assert.equal(r.stdout.trim(), "0.3.1");
+  assert.equal(r.stdout.trim(), "0.3.2");
 });
 
 test("cli --version-json identifies the immutable CI interface and checkout", () => {
@@ -46,7 +46,7 @@ test("cli --version-json identifies the immutable CI interface and checkout", ()
   assert.deepEqual(JSON.parse(r.stdout), {
     schema: "witnessqa-version/v1",
     interface: "witnessqa-ci/v1",
-    version: "0.3.1",
+    version: "0.3.2",
     head_sha: expectedHead,
     package_lock_sha256: createHash("sha256").update(readFileSync(join(harness, "package-lock.json"))).digest("hex"),
   });

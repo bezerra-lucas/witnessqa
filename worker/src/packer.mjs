@@ -7,6 +7,7 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { classifyFlow, describeFlow, summarize, displayTitle, displayGroup, displayPath, cleanErrors } from "./classify.mjs";
 import { createEvidenceGuard, PRIVACY_VERSION } from "./privacy.mjs";
 import { safeEvidencePath } from "./safe-evidence-path.mjs";
@@ -31,9 +32,19 @@ export function packRun(runDir) {
       const r = guard.redact(JSON.parse(readFileSync(rf, "utf8")));
       const shots = [];
       if (r.privacyVersion === PRIVACY_VERSION) {
-        for (const s of r.screenshots ?? []) {
+        const important = new Set((r.steps ?? []).filter(step => !step.ok ||
+          Object.keys(step.step ?? {}).some(key => key.startsWith('expect'))).map(step => step.screenshot));
+        const listed = r.screenshots ?? [];
+        important.add(listed.at(-1));
+        const hashes = new Set();
+        for (const s of listed.filter(name => important.has(name))) {
           const p = safeEvidencePath(join(run, dir), s, { extension: ".png" });
-          if (p) shots.push({ name: s, b64: readFileSync(p).toString("base64") });
+          if (p) {
+            const bytes = readFileSync(p);
+            const hash = createHash('sha256').update(bytes).digest('hex');
+            if (!hashes.has(hash)) shots.push({ name: s, b64: bytes.toString("base64") });
+            hashes.add(hash);
+          }
         }
       } else {
         legacyScreenshotsOmitted += (r.screenshots ?? []).length;
@@ -87,11 +98,11 @@ export function packRun(runDir) {
 
   const summaryBits = [];
   if (realFails) summaryBits.push(`${realFails} falha(s) do app`);
-  if (blocked) summaryBits.push(`${blocked} bloqueio(s) do testemunha (crash/OOM)`);
+  if (blocked) summaryBits.push(`${blocked} jornada(s) bloqueada(s) ou não executada(s)`);
   if (counts.warn) summaryBits.push(`${counts.warn} aviso(s) de console/rede`);
   if (counts.skip) summaryBits.push(`${counts.skip} skip(s) de sessão`);
   const execNote = allPass
-    ? "Nenhum fluxo falhou. O laudo abaixo é o registro assinado desta run."
+    ? "Todos os cenários passaram. Aprovação de release exige inspeção posterior."
     : `Leia primeiro os cartões no topo. ${summaryBits.join(" · ")}.`;
 
   const flowCards = flows.map((f, i) => flowCard(f, i, flows.length)).join("\n");
@@ -245,7 +256,7 @@ export function packRun(runDir) {
 </section>
 
 ${counts.skip ? `<section><div class="sec-label">§ Nota sobre os SKIPs</div><div class="note"><span class="tag">Comportamento esperado, não bug</span>Cenários marcados como SKIP usam sessão auth válida (storageState), então o app redireciona antes de mostrar o formulário de login. Para validar o form de verdade, rode com cookie limpo.</div></section>` : ""}
-${counts.blocked ? `<section><div class="sec-label">§ Nota sobre BLOCKED</div><div class="note"><span class="tag">Infra do testemunha, não necessariamente o app</span>O Chromium caiu (Target crashed / OOM) ao abrir ou fotografar a página. Dashboard pesado com screenshot full-page era a causa clássica nas runs v3. Não trate BLOCKED como regressão do produto até reproduzir à mão.</div></section>` : ""}
+${counts.blocked ? `<section><div class="sec-label">§ Nota sobre BLOCKED</div><div class="note"><span class="tag">Jornada não comprovada</span>A execução foi impedida por infraestrutura ou por um pré-requisito que não passou. Consulte a causa em cada jornada; BLOCKED não comprova o comportamento do produto.</div></section>` : ""}
 ${counts.warn ? `<section><div class="sec-label">§ Nota sobre os WARNs</div><div class="note"><span class="tag">Funcional com ruído</span>O fluxo carrega e valida, mas registra console errors ou respostas 4xx/5xx. Vale investigar no card correspondente.</div></section>` : ""}
 ${legacyScreenshotsOmitted ? `<section><div class="sec-label">§ Privacidade</div><div class="note"><span class="tag">Captura legada omitida</span>${legacyScreenshotsOmitted} screenshot(s) sem marca de sanitização não foram incorporados ao laudo.</div></section>` : ""}
 
@@ -328,6 +339,9 @@ function flowCard(f, i, total) {
         <span class="flow-nav">${prev}${next}</span>
       </div>
       <table class="steps">${stepRows(f)}</table>
+      ${f.finalUrl ? `<div class="analysis">URL final: <code>${esc(f.finalUrl)}</code></div>` : ''}
+      ${f.failure?.message ? `<div class="analysis">${esc(f.failure.message)}</div>` : ''}
+      ${f.browserState ? `<details class="analysis"><summary>Diagnóstico de navegação e sessão (sem valores de credenciais)</summary><pre>${esc(JSON.stringify({browserState:f.browserState,requests:f.requests},null,2))}</pre></details>` : ''}
       ${consoleBlock(f)}${networkBlock(f)}${analysis}${evidenceBlock(f)}
     </div>`;
 }

@@ -11,6 +11,7 @@ import { investigateFailure, byokConfigured } from "./byok.mjs";
 import { packRun } from "./packer.mjs";
 import { createEvidenceGuard } from "./privacy.mjs";
 import { isKnownFlowVerdict, normalizeFlowResult, workerExitCode } from "./verdict.mjs";
+import { orderScenarios, blockedDependency } from "./dependencies.mjs";
 
 function arg(flag, fallback) {
   const i = process.argv.indexOf(flag);
@@ -68,6 +69,12 @@ async function runOne(file) {
   const guard = createEvidenceGuard({ scenario });
   const evidenceDir = join(outDir, basename(file).replace(/\.(ya?ml|json)$/, ""));
   const prev = join(evidenceDir, "result.json");
+  const dependency = blockedDependency(scenario, new Map(results.map(result => [result.name, result])));
+  if (dependency) {
+    mkdirSync(evidenceDir, { recursive: true });
+    results.push(guard.writeJson(prev, dependency));
+    return;
+  }
   if (!force && existsSync(prev)) {
     const previous = JSON.parse(readFileSync(prev, "utf8"));
     if (previous.privacyVersion === guard.privacyVersion && isKnownFlowVerdict(previous.verdict)) {
@@ -104,8 +111,11 @@ async function runOne(file) {
   }
 }
 
-const queue = [...files];
-const workers = Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+const documents = files.map(file => ({ ...parseScenario(readFileSync(file, "utf8"), yaml), file }));
+const ordered = orderScenarios(documents);
+const hasDependencies = ordered.some(document => document.dependsOn?.length);
+const queue = ordered.map(document => document.file);
+const workers = Array.from({ length: Math.min(hasDependencies ? 1 : jobs, queue.length) }, async () => {
   while (queue.length) {
     const file = queue.shift();
     if (file) await runOne(file);

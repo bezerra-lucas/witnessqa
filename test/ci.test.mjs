@@ -334,7 +334,7 @@ test("ci blocks an unknown evidence kind without losing the trusted identities",
   assert.deepEqual(result.subject, { head_sha: fixture.headSha });
   assert.deepEqual(result.inputs, { dod_sha256: dodSha, plan_sha256: planSha });
   assert.match(result.harness.head_sha, /^[a-f0-9]{40}$/);
-  assert.equal(result.harness.version, "0.3.1");
+  assert.equal(result.harness.version, "0.3.2");
   assert.equal(result.harness.package_lock_sha256, sha256(readFileSync(join(harness, "package-lock.json"))));
   assert.deepEqual(result.execution, { kind: "agent-journey", cover_only: false, flow_count: 0 });
 });

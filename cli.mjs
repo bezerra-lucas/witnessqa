@@ -18,7 +18,7 @@ import { platform } from "node:os";
 import YAML from "yaml";
 import { executeCi } from "./worker/src/ci.mjs";
 
-const VERSION = "0.3.1";
+const VERSION = "0.3.2";
 const SCENARIO_DIR = "witness";
 const RUNS_DIR = ".witness/runs";
 const HERE = dirname(fileURLToPath(import.meta.url));

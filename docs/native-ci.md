@@ -21,7 +21,7 @@ gate outside WitnessQA.
 {
   "schema": "witnessqa-version/v1",
   "interface": "witnessqa-ci/v1",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "head_sha": "0000000000000000000000000000000000000000",
   "package_lock_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
 }
@@ -78,6 +78,20 @@ variables. Browser selection may additionally use
 credential values never belong in a job, plan, scenario, argv, log or evidence.
 
 ## Result and exit status
+
+Scenarios may declare `dependsOn: ["login"]`. All dependencies must belong to
+the selected plan; missing dependencies and cycles reject execution. Dependent
+scenarios execute only after every prerequisite passes. Otherwise they produce
+`blocked` evidence with zero executed steps and no copied screenshots. An
+incomplete plan remains ineligible for approval.
+
+Each executed scenario records its final URL, a bounded list of response
+statuses (method, origin, path and resource type; no query or request/response
+body), and browser storage metadata without stored values. These observations
+distinguish submission from successful authentication. They do not prove that
+the intended actor was authenticated; that requires a scenario assertion.
+The HTML presents unique assertion/final captures and retains the original
+step images in the evidence directory for audit.
 
 The new output directory contains `result.json` in
 `witnessqa-ci-result/v1`, `observation.json`, and a regenerated `evidence/`

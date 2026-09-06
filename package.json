@@ -1,6 +1,6 @@
 {
   "name": "witnessqa",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "AI agents that use your app like a real user and hand you the evidence. QA functional with screenshots, verdicts per flow, and BYOK root-cause analysis.",
   "type": "module",
   "bin": {

@@ -33,7 +33,7 @@ test("unknown verdict fails closed as blocked", () => {
   assert.equal(classifyFlow({ verdict: "unknown", steps: [] }), "blocked");
 });
 
-test("login timeout with first step ok is SKIP", () => {
+test("login timeout with first step ok is FAIL, never evidence of an active session", () => {
   const f = {
     name: "admin-01-login-formulario",
     verdict: "fail",
@@ -42,7 +42,9 @@ test("login timeout with first step ok is SKIP", () => {
       { ok: false, step: { fill: { selector: "input" } }, detail: "TimeoutError: locator.fill" },
     ],
   };
-  assert.equal(classifyFlow(f), "skip");
+  assert.equal(classifyFlow(f), "fail");
+  assert.equal(summarize([f]).allPass, false);
+  assert.equal(summarize([f]).stamp, "FAIL");
 });
 
 test("real assertion miss is FAIL", () => {

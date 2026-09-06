@@ -4,13 +4,11 @@
  *
  *   pass    — todos os steps ok
  *   warn    — fluxo passou, mas há ruído (console/network)
- *   skip    — falha esperada (login com sessão já ativa)
- *   blocked — o testemunha caiu (crash do Chromium, timeout de infra)
+ *   blocked — execução impedida por infraestrutura ou pré-requisito
  *   fail    — o app não fez o que o cenário pedia
  */
 
 const CRASH_RE = /Target crashed|Target closed|Target page, context or browser has been closed|Protocol error|browser has been closed|Page crashed|net::ERR_CONNECTION_REFUSED|net::ERR_NAME_NOT_RESOLVED/i;
-const TIMEOUT_RE = /TimeoutError|Timeout \d+ms exceeded/i;
 const NOISE_MSG = /Minified React error #418|Hydration failed|Did not expect server HTML|text content does not match server-rendered HTML|Download the React DevTools/i;
 const NOISE_NET = /[?&]_rsc=|\/_next\/data|hot-update|\.map(\?|$)|favicon/i;
 
@@ -46,12 +44,6 @@ export function classifyFlow(f) {
   if (f.verdict === "blocked" || isCrashDetail(details)) return "blocked";
   if (f.verdict === "warn") return "warn";
   if (f.verdict !== "fail") return f.verdict === "pass" ? "pass" : "blocked";
-
-  const isAuthRedirect =
-    /login|signin|access/i.test(f.name ?? "") &&
-    (f.steps ?? []).some((s) => !s.ok && TIMEOUT_RE.test(s.detail || "")) &&
-    f.steps?.[0]?.ok === true;
-  if (isAuthRedirect) return "skip";
 
   return "fail";
 }

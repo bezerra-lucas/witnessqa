@@ -72,6 +72,21 @@ test("packer refuses missing dir", () => {
   assert.throws(() => packRun("/no/such/run"), /uso:/);
 });
 
+test("packer shows unique assertion captures and the actual final route", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wq-useful-"));
+  const flow = join(dir,"units"); mkdirSync(flow);
+  for (const name of ['fill.png','assert.png','duplicate.png']) writeFileSync(join(flow,name),Buffer.from('same-image'));
+  writeFileSync(join(flow,'result.json'),JSON.stringify({privacyVersion:1,name:'units',what:'Unidades',verdict:'fail',
+    finalUrl:'http://127.0.0.1:42000/login',failure:{type:'dependency',message:'Login não comprovado'},
+    steps:[{index:0,ok:true,step:{fill:{selector:'input',value:'secret'}},screenshot:'fill.png'},
+      {index:1,ok:false,step:{expectText:'Unidades'},screenshot:'assert.png'}],
+    screenshots:['fill.png','assert.png','duplicate.png']}));
+  const report = readFileSync(packRun(dir).path,'utf8');
+  assert.equal((report.match(/data:image\/png;base64,/g)||[]).length,1);
+  assert.match(report,/URL final/);
+  assert.match(report,/Login não comprovado/);
+});
+
 test("packer escapes scenario names in HTML attributes", () => {
   const dir = mkdtempSync(join(tmpdir(), "wq-xss-"));
   const flow = join(dir, "unsafe-name");

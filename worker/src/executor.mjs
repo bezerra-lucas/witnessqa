@@ -24,7 +24,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
 
   const result = {
     name: scenario.name,
-    what: scenario.what ?? "",
+    what: scenario.what ?? scenario.name,
     verdict: "pass",
     steps: [],
     consoleErrors: [],
@@ -32,6 +32,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     networkErrors: [],
     brokenImages: [],
     screenshots: [],
+    requests: [],
     failure: null,
     privacyVersion: PRIVACY_VERSION,
     startedAt: new Date().toISOString(),
@@ -71,6 +72,12 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     result.networkErrors.push(guard.redactText(line));
   });
   page.on("response", (res) => {
+    if (result.requests.length < 200) {
+      const url = new URL(res.url());
+      result.requests.push({method: res.request().method(), origin: url.origin,
+        path: guard.redactText(url.pathname), status: res.status(),
+        resourceType: res.request().resourceType()});
+    }
     if (res.status() < 400) return;
     const url = res.url();
     const line = `${res.status()} ${url}`.slice(0, 240);
@@ -111,6 +118,14 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     await safeShot(page, join(evidenceDir, "crash-step.png"), guard);
     await dumpPage(page, evidenceDir, guard);
   } finally {
+    result.finalUrl = guard.redactText(page.url());
+    const cookies = await context.cookies().catch(() => []);
+    result.browserState = {
+      storageCount: cookies.length,
+      storageAttributes: cookies.map(({name, domain, path, secure, httpOnly, sameSite}) =>
+        ({name, domain, path, secure, httpOnly, sameSite})),
+      invalidFieldCount: await page.locator('input:invalid').count().catch(() => null),
+    };
     await browser.close().catch(() => {});
     result.finishedAt = new Date().toISOString();
   }
