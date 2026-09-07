@@ -16,6 +16,7 @@
     "README.md",
     "SECURITY.md",
     "docs/native-ci.md",
+    "docs/report-hierarchy.md",
     "docs/releases",
     "action.yml"
   ],

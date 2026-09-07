@@ -1,4 +1,6 @@
 name: fixture-cart
+title: Confirmar pedido com pagamento
+flow: { id: checkout, title: Finalizar um pedido }
 what: valida o checkout da fixture
 steps:
   - goto: /cart.html
@@ -6,5 +8,6 @@ steps:
   - expectText: Pagar
   - click: "#pay"
   - expectText: Pedido confirmado
+    evidence: { label: Pedido confirmado, highlight: true }
 checks:
   - noBrokenImages

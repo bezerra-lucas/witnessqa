@@ -88,6 +88,12 @@ test("e2e fixture: 3 pass + 1 fail, sanitized HTML dossier generated", async () 
     const missing = JSON.parse(readFileSync(join(out, "missing", "result.json"), "utf8"));
     assert.equal(home.verdict, "pass");
     assert.equal(cart.verdict, "pass");
+    assert.equal(cart.flow.id, 'checkout');
+    assert.equal(cart.title, 'Confirmar pedido com pagamento');
+    assert.equal(cart.evidenceMetadata.at(-1).label, 'Pedido confirmado');
+    assert.equal(cart.evidenceMetadata.at(-1).highlight, true);
+    assert.ok(Date.parse(cart.evidenceMetadata.at(-1).capturedAt) >= Date.parse(cart.startedAt));
+    assert.equal(cart.evidenceMetadata.at(-1).stepIndex, 4);
     assert.equal(missing.verdict, "fail");
     assert.ok(home.screenshots.length >= 1);
     assert.ok(existsSync(join(out, "missing", "page.html")));
