@@ -26,7 +26,7 @@ export function renderReport(input) {
       ${run.limitations?.length ? `<div class="notice">${run.limitations.map(esc).join('<br>')}</div>` : ''}
       <p class="empty-search" hidden>Nenhum teste corresponde aos filtros. Limpe a busca ou altere o resultado.</p>
       ${flows.length ? flows.map(flow => flowView(flow, model, run)).join('') : '<div class="notice">Nenhum teste encontrado nesta execução. A ausência de resultados não é aprovação.</div>'}
-      ${run.omissions ? `<div class="notice">Captura legada omitida ou arquivo indisponível: ${run.omissions} referência(s). Imagens sem a marca de privacidade não são incorporadas.</div>` : ''}
+      ${run.omissions ? `<div class="notice">Captura legada omitida ou arquivo indisponível: ${esc(run.omissions)} referência(s). Imagens sem a marca de privacidade não são incorporadas.</div>` : ''}
     </section>`;
   }).join('');
   return `<!doctype html>
@@ -99,7 +99,7 @@ function testView(test, flow, model, run) {
     ${featured ? evidenceView(featured, flow, test, run) : '<p class="no-capture">Sem captura de tela nesta execução do teste. O resultado automatizado não preenche essa lacuna visual.</p>'}
     ${other.length ? `<details class="more-evidence"><summary>Outras capturas deste teste · ${other.length}</summary><p class="muted">Arquivos preservados para diagnóstico; não representam testes ou fluxos adicionais.</p>${other.map(item => evidenceView(item, flow, test, run)).join('')}</details>` : ''}
     ${records.map(item => `<details class="record"><summary>${esc(item.title)} · ${esc(item.kind.toUpperCase())}</summary>${evidenceView(item, flow, test, run)}</details>`).join('')}
-    ${test.omissions ? `<p class="notice">${test.omissions} captura(s) indisponíveis, legadas ou não verificadas. A omissão não foi convertida em aprovação.</p>` : ''}
+    ${test.omissions ? `<p class="notice">${esc(test.omissions)} captura(s) indisponíveis, legadas ou não verificadas. A omissão não foi convertida em aprovação.</p>` : ''}
     </div></details>`;
 }
 

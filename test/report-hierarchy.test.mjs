@@ -159,6 +159,33 @@ test('model identities cannot collide with report controls and duplicates cannot
   assert.throws(() => validateReportModel(duplicate), /Duplicate/);
 });
 
+test('omission counts cannot carry markup or invalid numeric values', () => {
+  const model = buildReportModel(fixture(mkdtempSync(join(tmpdir(), 'wq-omissions-'))));
+  for (const collection of ['runs', 'tests']) {
+    for (const omissions of ['<img src=x onerror="window.pwned=1">', '2', -1, 1.5, Infinity, {}]) {
+      const broken = structuredClone(model);
+      broken[collection][0].omissions = omissions;
+      assert.throws(() => renderReport(broken), /omission/i, `${collection} omission count must be numeric`);
+    }
+  }
+});
+
+test('legacy directory-name fallbacks pass through the privacy guard', () => {
+  const root = mkdtempSync(join(tmpdir(), 'wq-private-fallback-'));
+  const privateName = 'customer.person@example.test';
+  const directory = join(root, privateName);
+  mkdirSync(directory);
+  writeFileSync(join(directory, 'result.json'), JSON.stringify({
+    privacyVersion: 1, verdict: 'pass', steps: [], screenshots: [], consoleErrors: [],
+  }));
+  const model = buildReportModel(root);
+  const record = model.tests[0];
+  for (const key of ['name', 'title', 'sourceTestId']) assert.equal(record[key], '[REDACTED]');
+  assert.equal(record.sourceFile, '[REDACTED]/result.json');
+  assert.equal(JSON.stringify(model).includes(privateName), false);
+  assert.equal(renderReport(model).includes(privateName), false);
+});
+
 test('report HTML is offline and escapes markup in every new metadata field', () => {
   const run = fixture(mkdtempSync(join(tmpdir(), 'wq-metadata-')));
   const source = join(run, 'checkout', 'result.json');

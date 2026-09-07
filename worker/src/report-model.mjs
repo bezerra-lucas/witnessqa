@@ -46,6 +46,11 @@ export function validateReportModel(model) {
   const flows = new Map(model.flows.map(flow => [flow.id, flow]));
   const tests = new Map(model.tests.map(test => [test.id, test]));
   if (!runs.has(model.selectedRunId)) throw new Error('Selected run is absent');
+  for (const item of [...model.runs, ...model.tests]) {
+    if (item.omissions != null && (!Number.isSafeInteger(item.omissions) || item.omissions < 0)) {
+      throw new Error('Report omission counts must be non-negative integers');
+    }
+  }
   for (const flow of model.flows) if (!runs.has(flow.runId)) throw new Error('Flow has no run');
   for (const test of model.tests) {
     if (!runs.has(test.runId) || !flows.has(test.flowId) ||
@@ -113,6 +118,7 @@ export function buildReportModel(input) {
       if (!resultPath) continue;
       const original = readFileSync(resultPath);
       const result = guard.redact(JSON.parse(original.toString('utf8')));
+      const displayDirectory = guard.redactText(entry.name);
       const target = result.app || firstGoto(result);
       let application = '';
       try { application = new URL(target, 'https://unspecified.invalid').origin; } catch { /* no inferred application */ }
@@ -128,13 +134,13 @@ export function buildReportModel(input) {
         model.flows.push(flow);
       }
       const testId = reportId('test', `${runId}:${entry.name}`);
-      const test = { id: testId, flowId, runId, sourceTestId: result.testId || result.name || entry.name,
-        name: result.name || entry.name, title: result.title || result.what || result.name || entry.name,
+      const test = { id: testId, flowId, runId, sourceTestId: result.testId || result.name || displayDirectory,
+        name: result.name || displayDirectory, title: result.title || result.what || result.name || displayDirectory,
         description: result.what || describeFlow(result), status: classifyFlow(result),
         observedStatus: result.verdict || 'unknown', expectedStatus: result.expectedStatus || null,
         startedAt: result.startedAt || null, finishedAt: result.finishedAt || null,
         viewport: result.viewport || null, browser: result.browser || null,
-        sourceFile: `${guard.redactText(entry.name)}/result.json`, sourceSha256: digest(original),
+        sourceFile: `${displayDirectory}/result.json`, sourceSha256: digest(original),
         steps: Array.isArray(result.steps) ? result.steps : [],
         consoleErrors: cleanErrors(result.consoleErrors), pageErrors: cleanErrors(result.pageErrors),
         networkErrors: cleanErrors(result.networkErrors), failure: result.failure || null,
@@ -155,7 +161,7 @@ export function buildReportModel(input) {
         const hasHeader = bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
         shots.push({ id: reportId('evidence', `${testId}:${name}`), runId, testId,
           kind: 'screenshot', title: metadata?.label || (step ? `Captura do passo ${step.index + 1}` : name),
-          filename: name, sourceFile: `${guard.redactText(entry.name)}/${name}`,
+          filename: name, sourceFile: `${displayDirectory}/${name}`,
           body: bytes.toString('base64'), contentType: 'image/png', sha256: digest(bytes),
           width: hasHeader ? bytes.readUInt32BE(16) : null, height: hasHeader ? bytes.readUInt32BE(20) : null,
           capturedAt: metadata?.capturedAt || null, stepIndex: step?.index ?? null,
