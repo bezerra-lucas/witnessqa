@@ -27,7 +27,11 @@ witnessqa init | login | cover | run | report | diff | list
 - **Visual diff** (`vdiff.mjs`) — compara apenas capturas referenciadas por runs
   com a versão de privacidade atual e persiste somente máscaras dos pixels que
   mudaram, sem reproduzir o conteúdo visual estável.
-- **Packer v4** — identidade papel/tinta/carimbo, galeria de evidências, BLOCKED ≠ FAIL.
+- **Report model + packer** — `report-model.mjs` normaliza execuções, fluxos,
+  testes e evidências com identidade e origem. `report-view.mjs` e
+  `report-app.mjs` renderizam Fluxos → Testes → Evidências, com captura
+  selecionada, arquivos adicionais recolhidos e execuções separadas.
+  BLOCKED ≠ FAIL; resultado automatizado ≠ aprovação visual.
 - **Cover** (`cover.mjs` + `witnessqa cover`) — descobre rotas (nav + `<a>`), gera 1 YAML por tela com heading real + `expectNoText` visível, sem teto de 12 nem `expectVisible: body`.
 - **GitHub Action** (`action/action.yml`) — instala o action path, falha o job só em FAIL.
 

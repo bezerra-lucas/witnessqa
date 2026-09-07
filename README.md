@@ -56,6 +56,14 @@ legacy unverified screenshots are not embedded into new reports. Mark additional
 app-specific regions with `data-witness-redact` or scenario
 `redaction.selectors`.
 
+### Report: Flows → Tests → Evidence
+
+Start with a user flow, open a test, then inspect that test execution's evidence.
+Optional `flow: { id, title }`, `testId` and `title` metadata group related tests
+without breaking existing scenario files. One meaningful capture is featured;
+other captures remain collapsed, and JSON records are distinct from screenshots.
+Multiple runs stay separate. See [the report model and metadata guide](docs/report-hierarchy.md).
+
 ### BYOK (free)
 
 ```bash

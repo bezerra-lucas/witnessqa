@@ -24,6 +24,13 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
 
   const result = {
     name: scenario.name,
+    ...(scenario.flow !== undefined ? { flow: scenario.flow } : {}),
+    ...(scenario.testId !== undefined ? { testId: scenario.testId } : {}),
+    ...(scenario.title !== undefined ? { title: scenario.title } : {}),
+    app: appBase,
+    viewport: vp,
+    browser: 'chromium',
+    expectedStatus: 'pass',
     what: scenario.what ?? "",
     verdict: "pass",
     steps: [],
@@ -32,6 +39,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     networkErrors: [],
     brokenImages: [],
     screenshots: [],
+    evidenceMetadata: [],
     failure: null,
     privacyVersion: PRIVACY_VERSION,
     startedAt: new Date().toISOString(),
@@ -218,6 +226,9 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard 
   if (await safeShot(page, join(evidenceDir, shotName), guard)) {
     entry.screenshot = shotName;
     result.screenshots.push(shotName);
+    result.evidenceMetadata.push(guard.redact({ file: shotName, stepIndex: index,
+      capturedAt: new Date().toISOString(), label: step.evidence?.label || '',
+      highlight: step.evidence?.highlight === true }));
   }
   return entry;
 }
