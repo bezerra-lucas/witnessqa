@@ -285,8 +285,11 @@ async function dismissOverlays(page) {
 async function leftAuthSurface(page, step) {
   if (page.isClosed()) return false;
   const url = page.url();
+  // Presentation metadata must not change whether an action succeeded or was
+  // skipped. Inspect only the executable action, never evidence labels/titles.
+  const action = step?.fill ? { fill: step.fill } : { click: step?.click };
   const looksLikeAuthStep = /login|signin|email|password|senha/i.test(
-    JSON.stringify(step ?? {}) + url,
+    JSON.stringify(action) + url,
   );
   if (!looksLikeAuthStep) return false;
   return !/login|signin|access|entrar/i.test(url);

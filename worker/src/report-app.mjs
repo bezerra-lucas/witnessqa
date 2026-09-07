@@ -63,6 +63,7 @@ export function reportApp(config) {
   }
   function selectRun(id) {
     if (!config.runs.some(run => run.id === id)) return;
+    if (id !== runId) closeEvidenceForNavigation();
     runId = id;
     runSelect.value = id;
     search.value = '';
@@ -70,8 +71,16 @@ export function reportApp(config) {
     for (const section of sections) for (const detail of section.querySelectorAll('details')) detail.open = false;
     filter();
   }
-  runSelect.addEventListener('change', () => {
+  function closeEvidenceForNavigation() {
+    // Do not restore focus to a test hidden by navigation to another context.
+    lastFocus = null;
+    activeEvidence = null;
+    imageSet = [];
+    imageIndex = 0;
     if (dialog.open) dialog.close();
+  }
+  runSelect.addEventListener('change', () => {
+    closeEvidenceForNavigation();
     selectRun(runSelect.value);
     history.replaceState(null, '', '#flows');
   });
@@ -92,6 +101,7 @@ export function reportApp(config) {
     try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; }
     const element = $(id) || (['tests', 'evidence'].includes(id) ? $('flows') : null);
     if (!element) return;
+    closeEvidenceForNavigation();
     reveal(element);
     const control = element.matches('details') ? element.querySelector('summary') : element;
     if (control?.matches('summary,button,a')) control.focus({ preventScroll: true });

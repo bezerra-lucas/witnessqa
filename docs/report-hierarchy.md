@@ -30,8 +30,12 @@ steps:
 `name` is still the scenario's executable identity. `testId` defaults to `name`;
 `title` supplies a reader-facing title. A flow can also be a non-empty string.
 Explicit flows are grouped by flow identity **and application origin**, within
-one run. Without `flow`, each scenario gets a clearly labeled individual group;
+one run. The initial absolute navigation determines that origin; the configured
+application/base URL is the fallback for a relative navigation, matching the executor.
+Without `flow`, each scenario gets a clearly labeled individual group;
 the report does not invent a business process from a route.
+Opaque flow IDs are derived from source identity before redaction. Two private
+IDs that both display as `[REDACTED]` must not collapse into a single flow.
 
 ## Evidence selection and integrity
 
@@ -41,6 +45,8 @@ captures are retained behind “Other captures of this test.” Exact byte dupli
 are labeled within the same test execution only. Similar-looking images are not
 automatically deleted or declared identical. This selection changes presentation,
 not the executor's capture policy, verdict or recorded assertions.
+Evidence labels and other presentation metadata never participate in action
+success or authenticated-session skip detection.
 
 The executor records capture completion time separately from test start time,
 plus the associated step and optional label. Older results have an explicit
@@ -59,7 +65,11 @@ when the HTML preview normalizes line endings or control characters.
 Packing multiple run directories preserves repeated scenario names. The report
 selects one run at a time; changing runs changes all counts and displayed flows.
 The first input directory is the initial selection. Lightbox arrows remain in
-the current test execution, never in a global cross-run gallery.
+the current test execution, never in a global cross-run gallery. Navigating to
+another context, including browser history/deep links, closes the old visualizer.
+Repeated or redacted run names are distinguished by date, ordinal and a short
+opaque identifier in the selector and evidence provenance; redacted names are
+never restored for convenience.
 
 The shared renderer also accepts historical references supplied by an adapter.
 They must explicitly identify their source and remain outside `evidence[]` when

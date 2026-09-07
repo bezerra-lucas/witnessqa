@@ -10,16 +10,22 @@ const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(val
 
 export function renderReport(input) {
   const model = validateReportModel(input);
-  const runInfo = model.runs.map(run => {
+  const labels = model.runs.map(run => String(run.label ?? '').trim());
+  const runInfo = model.runs.map((run, index) => {
     const tests = model.tests.filter(test => test.runId === run.id);
     const screenshots = model.evidence.filter(item => item.runId === run.id && item.kind === 'screenshot');
-    return { ...run, ...summarizeTests(tests), tests: tests.length,
+    const label = labels[index];
+    const ambiguous = !label || label.includes('[REDACTED]') || labels.filter(other => other === label).length > 1;
+    const displayLabel = ambiguous
+      ? `${label && !label.includes('[REDACTED]') ? label + ' · ' : ''}Execução ${index + 1} · ${date(run.startedAt)} · ${run.id.slice(-8)}`
+      : label;
+    return { ...run, label: displayLabel, ...summarizeTests(tests), tests: tests.length,
       flows: model.flows.filter(flow => flow.runId === run.id).length,
       screenshots: screenshots.length, testsWithImages: new Set(screenshots.map(item => item.testId)).size };
   });
   const selected = runInfo.find(run => run.id === model.selectedRunId);
   const navigation = model.flows.map(flow => `<a href="#${flow.id}" data-flow-link data-run-id="${flow.runId}">${esc(flow.title)}</a>`).join('');
-  const runSections = model.runs.map(run => {
+  const runSections = runInfo.map(run => {
     const flows = model.flows.filter(flow => flow.runId === run.id);
     return `<section class="run-section" data-run-section="${run.id}" aria-label="Execução ${esc(run.label)}">
       <div class="run-context"><span class="eyebrow">Execução</span><strong>${esc(run.label)}</strong><span>${esc(date(run.startedAt))}</span>${run.environment ? `<span>${esc(run.environment)}</span>` : ''}</div>
@@ -41,7 +47,7 @@ export function renderReport(input) {
 </aside>
 <div class="workspace"><header class="topbar"><span>WitnessQA <span class="muted">/ Relatório</span></span><button id="themeBtn" class="button js-only" type="button">Tema escuro</button></header>
 <main><section id="overview"><div class="page-heading"><div><div class="eyebrow">Revisão de qualidade</div><h1>${esc(model.title)}</h1><p class="muted">Fluxos → Testes → Evidências</p></div><span id="run-status" class="badge ${selected.stamp.toLowerCase()}">${selected.displayStatus}</span></div>
-  <div class="context-bar"><div class="js-only"><label for="run-select">Execução selecionada</label><select id="run-select">${model.runs.map(run => `<option value="${run.id}"${run.id === model.selectedRunId ? ' selected' : ''}>${esc(run.label)}</option>`).join('')}</select></div><p>Execuções diferentes não compartilham resultados ou evidências. <strong>Revisão visual não aprovada automaticamente.</strong></p></div>
+  <div class="context-bar"><div class="js-only"><label for="run-select">Execução selecionada</label><select id="run-select">${runInfo.map(run => `<option value="${run.id}"${run.id === model.selectedRunId ? ' selected' : ''}>${esc(run.label)}</option>`).join('')}</select></div><p>Execuções diferentes não compartilham resultados ou evidências. <strong>Revisão visual não aprovada automaticamente.</strong></p></div>
   <div class="stats"><div><span>Fluxos</span><strong id="flow-count">${selected.flows}</strong></div><div><span>Testes</span><strong id="test-count">${selected.tests}</strong></div><div><span>Testes aprovados</span><strong id="pass-count" class="pass-text">${selected.counts.pass}</strong></div><div><span>Testes com ressalvas</span><strong id="attention-count">${selected.tests - selected.counts.pass}</strong></div></div>
   <p id="run-breakdown" class="breakdown">${selected.counts.pass} PASS · ${selected.counts.fail} FAIL · ${selected.counts.blocked} BLOCKED · ${selected.counts.warn} WARN · ${selected.counts.skip} SKIP</p>
   <p id="evidence-coverage" class="muted coverage">${selected.screenshots} capturas em ${selected.testsWithImages} de ${selected.tests} testes. Registros JSON são mostrados separadamente.</p>

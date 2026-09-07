@@ -117,14 +117,22 @@ export function buildReportModel(input) {
       const resultPath = safeEvidencePath(join(root, entry.name), 'result.json', { extension: '.json' });
       if (!resultPath) continue;
       const original = readFileSync(resultPath);
-      const result = guard.redact(JSON.parse(original.toString('utf8')));
+      const sourceResult = JSON.parse(original.toString('utf8'));
+      const result = guard.redact(sourceResult);
       const displayDirectory = guard.redactText(entry.name);
-      const target = result.app || firstGoto(result);
-      let application = '';
-      try { application = new URL(target, 'https://unspecified.invalid').origin; } catch { /* no inferred application */ }
+      // An absolute goto overrides --base-url in the executor. Group by the
+      // application actually entered, not a fallback used only for relative URLs.
+      const navigation = firstGoto(sourceResult);
+      const target = /^https?:\/\//i.test(navigation) ? navigation : sourceResult.app || navigation;
+      let identityApplication = '';
+      try { identityApplication = new URL(target, 'https://unspecified.invalid').origin; } catch { /* no inferred application */ }
+      const application = guard.redactText(identityApplication).replace(/\/$/, '');
       const explicit = typeof result.flow === 'string' ? { id: result.flow, title: result.flow } : result.flow;
+      const sourceFlow = typeof sourceResult.flow === 'string' ? { id: sourceResult.flow } : sourceResult.flow;
       const declared = typeof explicit?.id === 'string' && explicit.id.trim() && typeof explicit?.title === 'string';
-      const flowKey = declared ? JSON.stringify([application, explicit.id]) : `legacy:${entry.name}`;
+      // Hash source identities before redaction; equal masked labels do not mean
+      // equal flows. Only the resulting opaque ID and redacted labels are emitted.
+      const flowKey = declared ? JSON.stringify([identityApplication, sourceFlow.id]) : `legacy:${entry.name}`;
       const flowId = reportId('flow', `${runId}:${flowKey}`);
       if (!flowMap.has(flowId)) {
         const flow = { id: flowId, runId, title: declared ? explicit.title : displayTitle(result),

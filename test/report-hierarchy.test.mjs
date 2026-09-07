@@ -186,6 +186,70 @@ test('legacy directory-name fallbacks pass through the privacy guard', () => {
   assert.equal(renderReport(model).includes(privateName), false);
 });
 
+test('redacted and repeated run labels remain distinguishable without exposing source names', () => {
+  const root = mkdtempSync(join(tmpdir(), 'wq-run-labels-'));
+  const names = ['1788804000000', '1788804060000'];
+  const directories = names.map(name => {
+    const run = join(root, name);
+    mkdirSync(join(run, 'shared'), { recursive: true });
+    writeFileSync(join(run, 'shared', 'result.json'), JSON.stringify({
+      privacyVersion: 1, name: 'same-test', verdict: 'pass',
+      startedAt: '2026-09-07T02:00:00Z', steps: [], screenshots: [],
+    }));
+    return run;
+  });
+  const model = buildReportModel(directories);
+  assert.ok(model.runs.every(run => run.label === '[REDACTED]'));
+  for (const label of ['[REDACTED]', 'Same name']) {
+    const input = structuredClone(model);
+    input.runs.forEach(run => { run.label = label; });
+    const html = renderReport(input);
+    const displayed = [...html.matchAll(/<option value="run-[^"]+"[^>]*>([^<]*)<\/option>/g)].map(match => match[1]);
+    assert.equal(displayed.length, 2);
+    assert.equal(new Set(displayed).size, 2, 'Run selection cannot show two indistinguishable options');
+    assert.ok(displayed.every(text => text.includes('2026-09-07')));
+    assert.ok(displayed.every(text => html.includes(`data-origin="${text} · shared/result.json"`)),
+      'Evidence provenance uses the same disambiguated label as the selector');
+    assert.ok(names.every(name => !html.includes(name)), 'Never restore redacted directory names');
+    assert.ok(input.runs.every(run => run.label === label), 'Rendering does not mutate the model');
+  }
+});
+
+test('flow grouping follows absolute navigation rather than a global fallback base URL', () => {
+  const root = mkdtempSync(join(tmpdir(), 'wq-application-origins-'));
+  for (const [name, target] of [['buyer', 'https://buyer.test/settings'], ['admin', 'https://admin.test/settings'], ['relative', '/settings']]) {
+    const directory = join(root, name);
+    mkdirSync(directory);
+    writeFileSync(join(directory, 'result.json'), JSON.stringify({ privacyVersion: 1,
+      name, app: 'https://default.test', flow: { id: 'settings', title: 'Settings' },
+      verdict: 'pass', screenshots: [], steps: [{ index: 0, ok: true, step: { goto: target } }],
+    }));
+  }
+  const model = buildReportModel(root);
+  assert.equal(model.flows.length, 3);
+  assert.deepEqual(model.flows.map(flow => flow.application).sort(), ['https://admin.test', 'https://buyer.test', 'https://default.test']);
+  assert.equal(new Set(model.tests.map(test => test.flowId)).size, 3);
+});
+
+test('distinct flow identities never collapse when their display values are redacted equally', () => {
+  const root = mkdtempSync(join(tmpdir(), 'wq-masked-flow-ids-'));
+  const identities = ['first.customer@example.test', 'second.customer@example.test', 'first.customer@example.test'];
+  identities.forEach((id, index) => {
+    const directory = join(root, `case-${index}`);
+    mkdirSync(directory);
+    writeFileSync(join(directory, 'result.json'), JSON.stringify({ privacyVersion: 1,
+      name: `case-${index}`, app: 'https://app.test', flow: { id, title: 'Account settings' },
+      verdict: 'pass', screenshots: [], steps: [],
+    }));
+  });
+  const model = buildReportModel(root);
+  assert.equal(model.flows.length, 2);
+  assert.notEqual(model.tests[0].flowId, model.tests[1].flowId);
+  assert.equal(model.tests[0].flowId, model.tests[2].flowId);
+  assert.ok(identities.every(id => !JSON.stringify(model).includes(id)));
+  assert.ok(identities.every(id => !renderReport(model).includes(id)));
+});
+
 test('report HTML is offline and escapes markup in every new metadata field', () => {
   const run = fixture(mkdtempSync(join(tmpdir(), 'wq-metadata-')));
   const source = join(run, 'checkout', 'result.json');
@@ -263,6 +327,13 @@ test('browser navigation follows flow → test → evidence and cannot cross run
 
     // A deep link expands the flow and test, and selects the right run.
     const runIds = await page.locator('#run-select option').evaluateAll(options => options.map(option => option.value));
+    const previousCheckout = model.tests.find(item => item.name === 'checkout' && item.runId !== model.selectedRunId);
+    await checkout.locator('.image-open:visible').first().click();
+    await page.evaluate(id => { location.hash = id; }, previousCheckout.id);
+    await page.waitForFunction(id => document.getElementById(id).open, previousCheckout.id);
+    assert.equal(await page.locator('#lightbox').evaluate(dialog => dialog.open), false,
+      'Hash navigation must not leave evidence from the previous context in an open dialog');
+    assert.equal(await page.locator('#run-select').inputValue(), runIds[1]);
     await page.selectOption('#run-select', runIds[1]);
     assert.equal(await page.locator('#run-status').textContent(), 'FAIL');
     assert.equal(await page.locator('details.test:visible').count(), 0);
