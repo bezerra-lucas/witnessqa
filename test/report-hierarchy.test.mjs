@@ -8,6 +8,7 @@ import YAML from 'yaml';
 import { PNG } from 'pngjs';
 import { buildReportModel, validateReportModel, digest } from '../worker/src/report-model.mjs';
 import { packRun } from '../worker/src/packer.mjs';
+import { renderReport } from '../worker/src/report-view.mjs';
 import { launchBrowser } from '../worker/src/browser.mjs';
 import { parseScenario } from '../worker/src/scenario.mjs';
 
@@ -118,6 +119,46 @@ test('shared renderer rejects forged digests, unsafe reference IDs and screensho
   assert.throws(() => validateReportModel(model), /identities/);
 });
 
+test('report model rejects orphaned tests even when both parent identities are absent', () => {
+  const model = buildReportModel(fixture(mkdtempSync(join(tmpdir(), 'wq-orphan-'))));
+  for (const parents of [{}, { flowId: null, runId: null }, { flowId: 'missing-flow', runId: 'missing-run' }]) {
+    const broken = structuredClone(model);
+    broken.tests.push({ id: 'test-orphaned-failure', status: 'fail', ...parents });
+    assert.throws(() => renderReport(broken), /invalid flow, run or status/,
+      'A failure must not silently disappear from both the report and its summary');
+  }
+});
+
+test('screenshot dimensions are bounded numeric metadata, never HTML attributes', () => {
+  const model = buildReportModel(fixture(mkdtempSync(join(tmpdir(), 'wq-dimensions-'))));
+  for (const key of ['width', 'height']) {
+    for (const value of ['1" onload="window.pwned=1', '320', 0, -1, 1.5, Infinity, 2 ** 32]) {
+      const broken = structuredClone(model);
+      broken.evidence[0][key] = value;
+      assert.throws(() => renderReport(broken), /dimensions/, `${key}=${value}`);
+    }
+    const incomplete = structuredClone(model);
+    delete incomplete.evidence[0][key];
+    assert.throws(() => renderReport(incomplete), /dimensions/);
+  }
+  const unknown = structuredClone(model);
+  unknown.evidence[0].width = null;
+  unknown.evidence[0].height = null;
+  assert.doesNotThrow(() => renderReport(unknown), 'Legacy captures may have unknown dimensions');
+});
+
+test('model identities cannot collide with report controls and duplicates cannot point to themselves', () => {
+  const model = buildReportModel(fixture(mkdtempSync(join(tmpdir(), 'wq-control-ids-'))));
+  for (const id of ['flows', 'overview', 'run-select', 'test-search', 'lightbox', 'themeBtn']) {
+    const broken = structuredClone(model);
+    broken.evidence.find(item => item.kind === 'json').id = id;
+    assert.throws(() => validateReportModel(broken), /reserved|identities/);
+  }
+  const duplicate = structuredClone(model);
+  duplicate.evidence[0].duplicateOf = duplicate.evidence[0].id;
+  assert.throws(() => validateReportModel(duplicate), /Duplicate/);
+});
+
 test('report HTML is offline and escapes markup in every new metadata field', () => {
   const run = fixture(mkdtempSync(join(tmpdir(), 'wq-metadata-')));
   const source = join(run, 'checkout', 'result.json');
@@ -138,6 +179,14 @@ test('browser navigation follows flow → test → evidence and cannot cross run
   const first = fixture(root);
   const second = fixture(root, '-previous', 'fail');
   const info = packRun([first, second]);
+  const model = buildReportModel([first, second]);
+  const originalTest = model.tests.find(item => item.name === 'checkout' && item.runId === model.selectedRunId);
+  // HTML parsing normalizes CRLF, leading newlines and NUL; downloads must not.
+  const recordBody = '\nPrimeira linha\r\nAção e evidência\u0000\rÚltima linha\n';
+  const textId = 'evidence-byte-preservation';
+  model.evidence.push({ id: textId, runId: originalTest.runId, testId: originalTest.id,
+    kind: 'text', body: recordBody, sha256: digest(recordBody), title: 'Registro com bytes preservados', filename: 'record.txt' });
+  writeFileSync(info.path, renderReport(model));
   const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const exceptions = [];
@@ -173,6 +222,17 @@ test('browser navigation follows flow → test → evidence and cannot cross run
     await checkout.locator('.more-evidence > summary').click();
     assert.equal(await checkout.locator('.image-open:visible').count(), 3);
     assert.equal(await checkout.locator('.duplicate:visible').count(), 2);
+
+    const record = checkout.locator('.record').filter({ has: page.locator('#' + textId) });
+    await record.locator('> summary').click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      record.locator('[data-download-evidence]').click(),
+    ]);
+    assert.equal(download.suggestedFilename(), 'record.txt');
+    const downloadedBytes = readFileSync(await download.path());
+    assert.deepEqual(downloadedBytes, Buffer.from(recordBody), 'Download preserves the content covered by the evidence digest');
+    assert.equal(digest(downloadedBytes), digest(recordBody));
 
     // A deep link expands the flow and test, and selects the right run.
     const runIds = await page.locator('#run-select option').evaluateAll(options => options.map(option => option.value));

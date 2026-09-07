@@ -146,7 +146,7 @@ export function reportApp(config) {
       bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
       type = 'image/png';
     } else {
-      bytes = element.querySelector('pre').textContent;
+      bytes = Uint8Array.from(atob(element.dataset.contentBase64), char => char.charCodeAt(0));
       type = element.dataset.evidenceKind === 'json' ? 'application/json' : 'text/plain';
     }
     const url = URL.createObjectURL(new Blob([bytes], { type }));

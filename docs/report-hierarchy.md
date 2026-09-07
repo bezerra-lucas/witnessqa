@@ -51,6 +51,8 @@ The sanitized `result.json` is also available as a JSON execution record. Its
 displayed content hash covers the sanitized representation; the test's source
 hash separately identifies the source file. A JSON record is neither visual
 coverage nor an independent check. Missing screenshot evidence stays visible.
+Saving a JSON/text record preserves the UTF-8 bytes covered by its digest, even
+when the HTML preview normalizes line endings or control characters.
 
 ## Run boundaries and history
 
@@ -79,7 +81,10 @@ gate rules, executor verdicts and privacy requirements are unchanged.
 The public model is `witnessqa-report/v1`: `runs`, `flows`, `tests`, `evidence`,
 and optional `references`. Every test identifies a flow and run. Every evidence
 item identifies a test in that same run. Model validation rejects duplicate IDs
-and cross-run associations. `renderReport()` is a rendering boundary, not a
+and cross-run associations, missing parent identities, and IDs reserved for
+report controls. Screenshot dimensions must be positive integers (or both
+unknown); duplicate references must point to a different original in the same
+test execution. `renderReport()` is a rendering boundary, not a
 sanitizer: callers must sanitize their records and images before supplying them.
 `buildReportModel()` enforces the existing EvidenceGuard and safe-path boundary.
 

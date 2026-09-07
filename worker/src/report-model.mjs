@@ -10,6 +10,12 @@ export const REPORT_SCHEMA = 'witnessqa-report/v1';
 export const digest = value => createHash('sha256').update(value).digest('hex');
 export const reportId = (kind, value) => `${kind}-${digest(String(value)).slice(0, 20)}`;
 const statuses = ['pass', 'fail', 'blocked', 'warn', 'skip'];
+// Model IDs share the document with these controls and must never shadow them.
+const reservedIds = new Set(['overview', 'flows', 'flows-heading', 'run-status',
+  'flow-count', 'test-count', 'pass-count', 'attention-count', 'run-breakdown',
+  'evidence-coverage', 'run-select', 'test-search', 'status-filter', 'clear-filters',
+  'filter-counter', 'report-source', 'themeBtn', 'lightbox', 'lbCap', 'lbOrigin',
+  'lbImg', 'lbClose', 'lbPosition', 'lbPrev', 'lbNext', 'lbDownload']);
 
 export function summarizeTests(tests) {
   const counts = Object.fromEntries(statuses.map(status => [status, 0]));
@@ -35,13 +41,15 @@ export function validateReportModel(model) {
   if (new Set(allIds).size !== allIds.length || allIds.some(id => typeof id !== 'string' || !/^[a-z][a-z0-9-]+$/i.test(id))) {
     throw new Error('Report identities must be globally unique and safe for links');
   }
+  if (allIds.some(id => reservedIds.has(id))) throw new Error('Report identities cannot use reserved control IDs');
   const runs = new Map(model.runs.map(run => [run.id, run]));
   const flows = new Map(model.flows.map(flow => [flow.id, flow]));
   const tests = new Map(model.tests.map(test => [test.id, test]));
   if (!runs.has(model.selectedRunId)) throw new Error('Selected run is absent');
   for (const flow of model.flows) if (!runs.has(flow.runId)) throw new Error('Flow has no run');
   for (const test of model.tests) {
-    if (flows.get(test.flowId)?.runId !== test.runId || !statuses.includes(test.status)) {
+    if (!runs.has(test.runId) || !flows.has(test.flowId) ||
+        flows.get(test.flowId).runId !== test.runId || !statuses.includes(test.status)) {
       throw new Error('Test has an invalid flow, run or status');
     }
   }
@@ -54,6 +62,7 @@ export function validateReportModel(model) {
     }
     validateContent(item);
     if (item.duplicateOf && !model.evidence.some(other => other.id === item.duplicateOf &&
+        other.id !== item.id && !other.duplicateOf && other.kind === item.kind &&
         other.testId === item.testId && other.runId === item.runId && other.sha256 === item.sha256)) {
       throw new Error('Duplicate evidence cannot cross a test or execution boundary');
     }
@@ -71,6 +80,13 @@ export function validateReportModel(model) {
 
 function validateContent(item) {
   if (typeof item.body !== 'string' || !/^[a-f0-9]{64}$/.test(item.sha256 ?? '')) throw new Error('Evidence needs content and a digest');
+  if (item.kind === 'screenshot') {
+    const dimensions = [item.width, item.height];
+    if (!dimensions.every(value => value == null) &&
+        !dimensions.every(value => Number.isSafeInteger(value) && value > 0 && value <= 0x7fffffff)) {
+      throw new Error('Screenshot dimensions must be positive integers or both unknown');
+    }
+  }
   if (item.kind === 'screenshot' && (item.body.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.body))) {
     throw new Error('Screenshot must be encoded as base64');
   }
