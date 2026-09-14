@@ -81,6 +81,25 @@ export function exportArtifact(runDir, outDir, { fallbackVerdict = "" } = {}) {
     flows = 1;
   }
   if (!flows) throw new Error("nenhuma evidência com privacyVersion compatível");
+  const metricsPath = runDir && safeEvidencePath(runDir, 'METRICS.json', { extension: '.json' });
+  if (metricsPath) {
+    try {
+      const source = JSON.parse(readFileSync(metricsPath, 'utf8'));
+      if (source.schema === 'witnessqa-metrics/v1' && source.privacyVersion === PRIVACY_VERSION) {
+        const metrics = { schema: source.schema, privacyVersion: PRIVACY_VERSION };
+        for (const key of ['durationMs', 'jobs', 'browserLaunches', 'scenarios', 'screenshots', 'workerCpuMs', 'workerPeakRssBytes', 'artifactBytes']) {
+          if (Number.isFinite(source[key]) && source[key] >= 0) metrics[key] = source[key];
+        }
+        if (['all', 'checkpoints'].includes(source.capturePolicy)) metrics.capturePolicy = source.capturePolicy;
+        metrics.phasesMs = {};
+        for (const key of ['report', 'analysis']) {
+          if (Number.isFinite(source.phasesMs?.[key]) && source.phasesMs[key] >= 0) metrics.phasesMs[key] = source.phasesMs[key];
+        }
+        metrics.resourceScope = 'Node worker only; browser processes excluded. Phase times can overlap.';
+        guard.writeJson(join(outDir, 'METRICS.json'), metrics);
+      }
+    } catch { /* Diagnostic metadata is optional; never copy unknown text. */ }
+  }
   const packed = packRun(outDir);
   return { path: outDir, flows, screenshots, report: packed.path };
 }

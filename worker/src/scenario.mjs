@@ -40,6 +40,17 @@ export function parseScenario(raw, yamlLib) {
       throw new Error(`Teste inválido: ${key} precisa ser uma string não vazia`);
     }
   }
+  if (doc.assertionTimeoutMs !== undefined && (!Number.isInteger(doc.assertionTimeoutMs) || doc.assertionTimeoutMs < 1 || doc.assertionTimeoutMs > 30000)) {
+    throw new Error('assertionTimeoutMs must be an integer from 1 to 30000');
+  }
+  if (doc.ready !== undefined) {
+    const ready = typeof doc.ready === 'string' ? { selector: doc.ready } : doc.ready;
+    if (!ready || typeof ready.selector !== 'string' || !ready.selector.trim() ||
+        (ready.text !== undefined && (typeof ready.text !== 'string' || !ready.text.trim())) ||
+        (ready.timeout !== undefined && (!Number.isInteger(ready.timeout) || ready.timeout < 1 || ready.timeout > 30000))) {
+      throw new Error('ready must be a selector or { selector, text?, timeout? }');
+    }
+  }
   for (const step of doc.steps) {
     if (step?.evidence === undefined) continue;
     const evidence = step.evidence;

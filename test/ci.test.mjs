@@ -141,6 +141,9 @@ for (const imageKind of ['screenshot', 'png']) test(`ci executes a real planned 
     const harness = cleanHarness(directory);
     const output = join(directory, "output");
     const fixture = makeRequest(directory, port, imageKind);
+    const request = JSON.parse(readFileSync(fixture.requestPath, 'utf8'));
+    request.environment_names.push('WITNESS_JOBS', 'WITNESS_MAX_JOBS');
+    writeJson(fixture.requestPath, request);
 
     const completed = withUmask(0o002, () =>
       spawnSync(
@@ -152,6 +155,7 @@ for (const imageKind of ['screenshot', 'png']) test(`ci executes a real planned 
             ...process.env,
             PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
             WITNESS_CI_SCENARIO_DIR: fixture.scenarios,
+            WITNESS_JOBS: "2", WITNESS_MAX_JOBS: "2",
           },
           timeout: 60_000,
         },
@@ -161,6 +165,9 @@ for (const imageKind of ['screenshot', 'png']) test(`ci executes a real planned 
     assert.equal(completed.status, 0, completed.stderr || completed.stdout);
     const result = JSON.parse(readFileSync(join(output, "result.json"), "utf8"));
     assert.equal(result.schema, "witnessqa-ci-result/v1");
+    const metrics = JSON.parse(readFileSync(join(output, 'evidence/METRICS.json')));
+    assert.equal(metrics.jobs, 2);
+    assert.equal(metrics.capturePolicy, 'all');
     assert.equal(result.status, "complete");
     assert.equal(result.privacy_version, 1);
     assert.deepEqual(result.execution, { kind: "agent-journey", cover_only: false, flow_count: 1 });
@@ -199,6 +206,7 @@ for (const imageKind of ['screenshot', 'png']) test(`ci executes a real planned 
           ...process.env,
           PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
           WITNESS_CI_SCENARIO_DIR: fixture.scenarios,
+          WITNESS_JOBS: "2", WITNESS_MAX_JOBS: "2",
         },
       },
     );

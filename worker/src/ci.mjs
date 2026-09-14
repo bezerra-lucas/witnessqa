@@ -17,6 +17,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
+import { parseJobs } from './runtime-options.mjs';
+import { parseScenario } from './scenario.mjs';
 import { normalizeExpectText } from "./classify.mjs";
 import { exportArtifact } from "./export-artifact.mjs";
 
@@ -414,6 +416,7 @@ function selectScenarios(plan, scenarioRoot, environment, subjectCheckout) {
 }
 
 function validateScenario(document, environment, subjectCheckout) {
+  try { parseScenario(document, YAML); } catch { blocked('invalid-scenario', 'Invalid scenario readiness or metadata'); }
   if (!document || typeof document !== "object" || typeof document.name !== "string" ||
       !SCENARIO_ID.test(document.name) || !Array.isArray(document.steps) || document.steps.length < 2) {
     blocked("invalid-scenario", "Scenario is not a real journey");
@@ -512,10 +515,13 @@ function isSpecificUrlAssertion(value, app, navigations) {
 
 function runWorker(scenarioPaths, output, environment, imageFormat) {
   if (scenarioPaths.length === 0) blocked("empty-journey", "No journey was selected");
+  let jobs;
+  try { jobs = parseJobs(environment.WITNESS_JOBS ?? '1', environment); }
+  catch { blocked('invalid-jobs', 'WITNESS_JOBS exceeds the configured runner budget'); }
   return new Promise((resolvePromise, reject) => {
     const child = spawn(
       process.execPath,
-      [join(HERE, "worker.mjs"), ...scenarioPaths, "--out", output, "--jobs", "1", "--image-format", imageFormat, "--force"],
+      [join(HERE, "worker.mjs"), ...scenarioPaths, "--out", output, "--jobs", String(jobs), "--capture", "all", "--image-format", imageFormat, "--force"],
       { env: environment, stdio: "ignore" },
     );
     child.once("error", () => reject(new CiBlocked("worker-unavailable", "Journey worker could not start")));

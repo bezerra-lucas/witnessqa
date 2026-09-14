@@ -1,0 +1,143 @@
+{
+  "baseline": "28542101fda488c2ccf3309fd2e6eb1b4daea265",
+  "records": [
+    {
+      "label": "baseline-r1",
+      "wall_s": 20.871434451000823,
+      "cpu_s": 5.58604,
+      "peak_rss_mib": 1022.77734375,
+      "peak_pss_mib": 506.5400390625,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 190,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 20.394865036010742,
+      "png_count": 72,
+      "html_mib": 11.673723220825195,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "defaults-r1",
+      "wall_s": 20.848065013997257,
+      "cpu_s": 5.753535,
+      "peak_rss_mib": 1094.390625,
+      "peak_pss_mib": 567.7138671875,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 187,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 3.656736373901367,
+      "png_count": 0,
+      "html_mib": 0.30494213104248047,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "ready-checkpoints-r1",
+      "wall_s": 4.407195305000641,
+      "cpu_s": 3.419173,
+      "peak_rss_mib": 1062.33984375,
+      "peak_pss_mib": 543.0166015625,
+      "peak_processes": 14,
+      "exit": 0,
+      "samples": 41,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 0.8925800323486328,
+      "png_count": 0,
+      "html_mib": 0.15842819213867188,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "ready-checkpoints-r2",
+      "wall_s": 4.5263713329986786,
+      "cpu_s": 3.671,
+      "peak_rss_mib": 1072.109375,
+      "peak_pss_mib": 525.8701171875,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 42,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 0.8926000595092773,
+      "png_count": 0,
+      "html_mib": 0.15844154357910156,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "defaults-r2",
+      "wall_s": 21.08649818899721,
+      "cpu_s": 5.661059,
+      "peak_rss_mib": 1057.5390625,
+      "peak_pss_mib": 529.9404296875,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 190,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 3.656576156616211,
+      "png_count": 0,
+      "html_mib": 0.3048267364501953,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "baseline-r2",
+      "wall_s": 21.069700143001683,
+      "cpu_s": 5.758411,
+      "peak_rss_mib": 1027.66796875,
+      "peak_pss_mib": 508.923828125,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 191,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 20.394865036010742,
+      "png_count": 72,
+      "html_mib": 11.673723220825195,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    }
+  ]
+}

@@ -47,7 +47,13 @@ test("artifact export allowlists verified evidence and omits legacy or orphan fi
   symlinkSync(outsideResult, join(linkedResult, "result.json"));
   writeFileSync(join(run, "REPORT.md"), "legacy opaque fill: outside-private-report");
 
+  writeFileSync(join(run, 'METRICS.json'), JSON.stringify({ schema: 'witnessqa-metrics/v1', privacyVersion: 1,
+    jobs: 2, workerCpuMs: 'private-metric-value', unknown: 'private-metric-value', phasesMs: { report: 12, secret: 'private-metric-value' } }));
   const exported = exportArtifact(run, out);
+  const metrics = JSON.parse(readFileSync(join(out, 'METRICS.json')));
+  assert.equal(metrics.jobs, 2);
+  assert.deepEqual(metrics.phasesMs, { report: 12 });
+  assert.doesNotMatch(JSON.stringify(metrics), /private-metric-value/);
   assert.equal(exported.flows, 1);
   assert.ok(existsSync(join(out, "safe-flow", "step-00.png")));
   assert.ok(existsSync(join(out, "REPORT.html")));

@@ -13,6 +13,7 @@ import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { launchBrowser } from "./browser.mjs";
 import { createEvidenceGuard } from "./privacy.mjs";
+import { waitUntilReady } from './conditions.mjs';
 
 const ERROR_MARKERS = [
   "Não foi possível carregar",
@@ -170,12 +171,15 @@ async function inspect(page) {
   }, ERROR_MARKERS);
 }
 
-export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix = "" }) {
+export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix = "", ready }) {
+  if (existsSync(join(outDir, 'coverage.json'))) throw new Error('Discovery output already exists; choose a fresh --out directory');
+  if (authFile && !existsSync(authFile)) throw new Error('Configured storage state file is missing');
   mkdirSync(outDir, { recursive: true });
   mkdirSync(join(outDir, "witness"), { recursive: true });
   const origin = new URL(startUrl).origin;
   const guard = createEvidenceGuard();
   const browser = await launchBrowser();
+  try {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 950 },
     ...(authFile && existsSync(authFile) ? { storageState: authFile } : {}),
@@ -186,33 +190,20 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
   const visited = new Set();
   const pages = [];
   const edges = [];
-  const prevFile = join(outDir, "coverage.json");
-  if (existsSync(prevFile)) {
-    try {
-      const prev = JSON.parse(readFileSync(prevFile, "utf8"));
-      for (const p of prev.pages ?? []) {
-        if (p.url) {
-          visited.add(norm(p.url));
-          pages.push(p);
-        }
-      }
-      for (const e of prev.edges ?? []) edges.push(e);
-      for (const e of edges) {
-        const to = e.to && norm(e.to);
-        if (to && !visited.has(to) && !queue.includes(to)) queue.push(to);
-      }
-    } catch { /* grafo novo */ }
-  }
-
+  // Discovery is fresh. A graph from another session or revision is not proof
+  // that those routes are still available in this run.
   while (queue.length && visited.size < maxNodes) {
     const url = queue.shift();
     if (visited.has(url)) continue;
     visited.add(url);
     try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-      await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => {});
+      if (ready) await waitUntilReady(page, ready);
+      else {
+        await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => {});
+        await page.waitForTimeout(600);
+      }
       await dismiss(page);
-      await page.waitForTimeout(600);
       const info = Object.fromEntries(Object.entries(await inspect(page)).map(([key, value]) => [key, guard.redactText(value)]));
       const links = (await harvest(page, origin)).map((link) => ({ ...link, href: guard.redactText(link.href), text: guard.redactText(link.text) }));
       pages.push({ url, ...info, links: links.length });
@@ -240,8 +231,6 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
     }
   }
 
-  await browser.close();
-
   const yamls = [];
   for (const p of pages) {
     if (p.error) continue;
@@ -255,9 +244,10 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
       `what: ${JSON.stringify(what)}`,
       `app: ${origin}`,
       ...(authFile ? [`auth: ${authFile}`] : []),
+      ...(ready ? [`ready: ${JSON.stringify(ready)}`] : []),
       "steps:",
       `  - goto: ${p.url}`,
-      "  - wait: 2000",
+      ...(ready ? [] : ["  - wait: 2000"]),
     ];
     if (assertionText) lines.push(`  - expectText: ${JSON.stringify(assertionText)}`);
     for (const err of ERROR_MARKERS.slice(0, 3)) {
@@ -280,6 +270,7 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
   };
   const safeGraph = guard.writeJson(join(outDir, "coverage.json"), graph);
   return { ...safeGraph, yamls, outDir };
+  } finally { await browser.close().catch(() => {}); }
 }
 
 const isCli = process.argv[1] && /cover\.mjs$/.test(process.argv[1].replace(/\\/g, "/"));
@@ -295,6 +286,7 @@ if (isCli) {
     authFile: arg("--auth", ""),
     maxNodes: Number(arg("--max", 80)),
     prefix: arg("--prefix", ""),
+    ready: arg("--ready", undefined),
   });
   console.log(`cover: ${r.discovered} telas · ${r.generated} YAMLs · ${r.edges.length} arestas`);
   for (const p of r.pages) {

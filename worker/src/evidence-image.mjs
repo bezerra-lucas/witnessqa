@@ -16,12 +16,17 @@ export function safeImagePath(directory, name) {
   return typeof name === 'string' && imageType(name) ? safeEvidencePath(directory, name) : null;
 }
 
+// Bound native encoding memory independently of the number of browser slots.
+// Queued inputs are already privacy-masked; failures cannot poison the queue.
+let encodingTail = Promise.resolve();
 export async function encodeScreenshot(png, format = 'webp') {
   // An explicit PNG requirement belongs to the existing CI contract. Store one
   // format, never a WebP plus an original PNG. Ordinary runs use lossless WebP.
   if (format === 'png') return png;
   if (format !== 'webp') throw new Error('Unsupported screenshot format');
-  return sharp(png).webp({ lossless: true, effort: 1 }).toBuffer();
+  const encoded = encodingTail.then(() => sharp(png).webp({ lossless: true, effort: 1 }).toBuffer());
+  encodingTail = encoded.then(() => undefined, () => undefined);
+  return encoded;
 }
 
 /** Reflinks share storage where supported; every evidence file remains independent. */

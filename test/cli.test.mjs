@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { symlinkSync, copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -109,4 +109,13 @@ test("CLI positional parsing excludes values owned by flags", () => {
     positionalArgs(["witness/home.yaml", "--base-url", "https://app.test", "--auth", "state.json", "--headed"]),
     ["witness/home.yaml"],
   );
+});
+
+test('CLI starts through the symlink used by npm and Docker', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wq-cli-link-'));
+  const link = join(directory, 'witnessqa');
+  symlinkSync(cli, link);
+  const result = spawnSync(process.execPath, [link, '--version'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), '0.3.1');
 });
