@@ -16,6 +16,9 @@
     "README.md",
     "SECURITY.md",
     "docs/native-ci.md",
+    "docs/runner.md",
+    "docs/positioning.md",
+    "docs/performance",
     "docs/report-hierarchy.md",
     "docs/releases",
     "action.yml"
@@ -40,7 +43,7 @@
   },
   "dependencies": {
     "pixelmatch": "^7.2.0",
-    "playwright-core": "^1.49.0",
+    "playwright-core": "1.62.1",
     "pngjs": "^7.0.0",
     "sharp": "0.35.4",
     "yaml": "^2.6.0"

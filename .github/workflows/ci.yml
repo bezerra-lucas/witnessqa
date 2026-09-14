@@ -11,8 +11,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
-      - run: npx playwright install chromium --with-deps
+      - run: npm ci
+      - run: node cli.mjs install-browser --with-deps
       - run: npm test
         env:
           WITNESS_REPORT_TEST_ARTIFACTS: ${{ runner.temp }}/report-hierarchy-ui
@@ -99,3 +99,15 @@ jobs:
           test "$ACTUAL_REPORT_PATH" = "$ACTUAL_ARTIFACT_PATH/REPORT.html"
           test -f "$ACTUAL_REPORT_PATH"
           test -f "$DOWNLOADED_REPORT"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t witnessqa:test .
+      - run: docker run --rm witnessqa:test doctor
+      - name: Execute a real scenario in the container
+        run: |
+          mkdir -p /tmp/witnessqa-container-test
+          chmod 777 /tmp/witnessqa-container-test
+          docker run --rm -v /tmp/witnessqa-container-test:/work -v "$PWD/test/container-smoke.sh:/test.sh:ro" --entrypoint sh witnessqa:test /test.sh

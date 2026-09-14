@@ -1,8 +1,8 @@
 # WitnessQA
 
-**AI agents that use your app like a real user — and hand you the evidence.**
+**Validate your application’s user flows and review the evidence for each test.**
 
-The product is a **coverage engine**: discover every screen, assert real content, hand you an offline evidence bundle.
+Run versioned journeys against your application, inspect failures by flow and test, and keep an offline evidence bundle. Native CI binds the plan and evidence to the tested commit. [Why Witness, alongside QA, E2E and code review](docs/positioning.md).
 
 Screenshots are stored as **lossless WebP** at the captured resolution. The PNG
 returned by Chromium exists only in memory; no original copy is retained.
@@ -32,13 +32,16 @@ laudo: http://127.0.0.1:8765/REPORT.html
 
 ## Quick start
 
-Chrome/Chromium on the machine (or `npx playwright install chromium`).
+Node 20.9+ and Chromium. Use `witnessqa install-browser --with-deps` for the exact browser version; `witnessqa doctor` checks the setup.
 
 ```bash
-npx witnessqa init
+npm install -g witnessqa
+witnessqa install-browser --with-deps
+witnessqa init
 # edit witness.config.yaml → targets + auth
 witnessqa login witness/login.yaml
-witnessqa cover                 # discover + run + open the report
+witnessqa run --jobs 1          # execute your reviewed scenarios
+witnessqa cover --discover-only # optionally draft route smoke tests
 witnessqa report                # serve the latest dossier
 witnessqa diff <run-a> <run-b>  # verdict delta between two runs
 ```
@@ -53,7 +56,7 @@ targets:
     auth: .witness/auth/login.json
 ```
 
-Manual YAML still works (`witnessqa run`). Prefer `cover` — it writes one scenario per discovered screen with heading + visible-error asserts, not `expectVisible: body`.
+Use `run` for regression in every PR. Use `cover` explicitly to discover routes and draft smoke tests, then review/version their assertions. A discovered heading is not a complete business acceptance criterion.
 
 `$WITNESS_EMAIL` / `$WITNESS_PASSWORD` expand in `fill.value`.
 
@@ -94,6 +97,8 @@ sanitized HTML excerpt requires the explicit opt-in
 
 | Command | What it does |
 |---|---|
+| `witnessqa doctor [--base-url URL] [--ready selector]` | Diagnose browser, session, application readiness and output access |
+| `witnessqa install-browser [--with-deps]` | Install Chromium matching the pinned Playwright version |
 | `witnessqa --version-json` | Report the immutable `witnessqa-ci/v1` harness identity |
 | `witnessqa ci --job <json> --out <new-dir>` | Execute a frozen agent journey for native CI |
 | `witnessqa cover [url]` | Discover routes (nav + clicks + wizards), generate YAML, run, serve the dossier |
@@ -114,7 +119,9 @@ and never turns collection alone into approval. See the complete
 ```yaml
 - uses: bezerra-lucas/witnessqa@main
   with:
-    mode: cover
+    mode: run
+    scenarios: ./witness
+    jobs: "1"
     base-url: https://staging.example.com
     auth: .witness/auth/login.json
     api-key: ${{ secrets.OPENROUTER_KEY }}
@@ -131,8 +138,12 @@ Docker (same CLI, CI/cloud):
 
 ```bash
 docker build -t witnessqa .
-docker run --rm -v $PWD:/work witnessqa cover
+docker run --rm -v "$PWD:/work" witnessqa run witness --base-url https://preview.example.com
 ```
+
+See [the VPS/Actions setup guide](docs/runner.md) for Compose, private sessions,
+browser caching and cancellation of obsolete Actions runs. See [runtime performance](docs/performance/runner.md)
+for readiness conditions, checkpoints, budgets, measurements and migration behavior.
 
 ## Roadmap
 

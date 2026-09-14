@@ -134,3 +134,17 @@ trusted job. Keep the scenario directory and ephemeral credentials outside `/opt
 outside the pull-request checkout. The system-level `safe.directory` entry is
 needed because the immutable checkout is root-owned while the identity probe
 runs as the unprivileged job user.
+
+## Runtime resource budget
+
+Declare `WITNESS_JOBS` and optionally `WITNESS_MAX_JOBS` in the request's
+`environment_names` to configure bounded scenario concurrency. The default is
+one slot; the maximum configurable ceiling is 16. Keep one slot when scenarios
+share mutable backend data. Each scenario receives a fresh browser context,
+while a browser process can serve up to 20 scenarios before recycling.
+
+Native CI always captures every step and executes into a fresh directory. It
+ignores ordinary capture preferences and does not reuse an old verdict. A declared
+`ready` condition and `assertionTimeoutMs` are validated as part of the scenario.
+`METRICS.json` is diagnostic only and does not satisfy an acceptance criterion.
+See [runner setup](runner.md) and [performance](performance/runner.md).

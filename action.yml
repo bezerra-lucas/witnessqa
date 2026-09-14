@@ -8,7 +8,19 @@ inputs:
   mode:
     description: "cover (discover+run) or run (existing YAML)"
     required: false
-    default: "cover"
+    default: "run"
+  jobs:
+    description: "Concurrent scenarios; 1 is safe for shared test data"
+    required: false
+    default: "1"
+  capture:
+    description: "all, or checkpoints (annotated steps, final state and failures)"
+    required: false
+    default: "all"
+  ready:
+    description: "Application readiness selector used in explicit cover mode"
+    required: false
+    default: ""
   base-url:
     description: "App URL when mode=run, or single-target cover"
     required: false
@@ -59,11 +71,19 @@ runs:
       with:
         node-version: 22
 
+    - name: Cache Chromium
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/witnessqa-browsers
+        key: witnessqa-browser-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(format('{0}/package-lock.json', github.action_path)) }}
+
     - name: Install WitnessQA
       shell: bash
+      env:
+        PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/witnessqa-browsers
       run: |
-        npm install -g "${{ github.action_path }}"
-        npx playwright install chromium --with-deps
+        npm ci --prefix "$GITHUB_ACTION_PATH" --omit=dev
+        node "$GITHUB_ACTION_PATH/cli.mjs" install-browser --with-deps
 
     - name: Run WitnessQA
       id: run
@@ -75,11 +95,16 @@ runs:
         WITNESS_DISCORD_WEBHOOK: ${{ inputs.discord-webhook }}
         GH_TOKEN: ${{ github.token }}
         WITNESS_GH_PR: ${{ github.event.pull_request.number }}
+        PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/witnessqa-browsers
+        INPUT_JOBS: ${{ inputs.jobs }}
+        INPUT_CAPTURE: ${{ inputs.capture }}
+        INPUT_READY: ${{ inputs.ready }}
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_AUTH: ${{ inputs.auth }}
         INPUT_BASE_URL: ${{ inputs.base-url }}
         INPUT_SCENARIOS: ${{ inputs.scenarios }}
       run: |
+        witnessqa() { node "$GITHUB_ACTION_PATH/cli.mjs" "$@"; }
         ACTION_ROOT=$(mktemp -d "${RUNNER_TEMP:-/tmp}/witnessqa-action.XXXXXX")
         RUN_DIR="$ACTION_ROOT/run"
         ARTIFACT_PATH="$ACTION_ROOT/upload"
@@ -96,12 +121,16 @@ runs:
           ARGS=()
           if [ -n "$BASE" ]; then ARGS+=("$BASE"); fi
           if [ -n "$AUTH" ]; then ARGS+=(--auth "$AUTH"); fi
-          witnessqa cover "${ARGS[@]}" --no-open --no-serve
-        else
+          if [ -n "$INPUT_READY" ]; then ARGS+=(--ready "$INPUT_READY"); fi
+          witnessqa cover "${ARGS[@]}" --jobs "$INPUT_JOBS" --capture "$INPUT_CAPTURE" --no-open --no-serve
+        elif [ "$MODE" = "run" ]; then
           ARGS=("$INPUT_SCENARIOS")
           if [ -n "$BASE" ]; then ARGS+=(--base-url "$BASE"); fi
           if [ -n "$AUTH" ]; then ARGS+=(--auth "$AUTH"); fi
-          witnessqa run "${ARGS[@]}"
+          witnessqa run "${ARGS[@]}" --jobs "$INPUT_JOBS" --capture "$INPUT_CAPTURE"
+        else
+          echo 'Invalid mode: choose run or cover' >&2
+          false
         fi
         CODE=$?
         VERDICT=$(node "${{ github.action_path }}/worker/src/verdict.mjs" from-exit "$CODE")
@@ -152,16 +181,6 @@ runs:
         WITNESS_VERDICT: ${{ steps.run.outputs.verdict }}
         WITNESS_REPORT_PATH: ${{ steps.run.outputs.report-path }}
         WITNESS_PR_NUMBER: ${{ github.event.number }}
+        WITNESS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       run: |
-        VERDICT="$WITNESS_VERDICT"
-        REPORT="$WITNESS_REPORT_PATH"
-        if [ -n "$REPORT" ]; then
-          REPORT_LINE="Report path: \`$REPORT\`"
-        else
-          REPORT_LINE="Report unavailable; inspect the artifact for exporter diagnostics."
-        fi
-        BODY="## WitnessQA · ${VERDICT^^}
-        Evidence artifact: **${WITNESS_ARTIFACT_NAME}**.
-        ${REPORT_LINE}
-        <sub>evidence, not promises</sub>"
-        gh pr comment "$WITNESS_PR_NUMBER" --body "$BODY"
+        node "$GITHUB_ACTION_PATH/worker/src/action-comment.mjs"
