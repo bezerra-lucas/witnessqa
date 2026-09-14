@@ -69,7 +69,8 @@ export async function executeCi(jobPathValue, outputValue, identity) {
     const privateRun = mkdtempSync(join(tmpdir(), "witnessqa-ci-run-"));
     chmodSync(privateRun, 0o700);
     try {
-      const workerExit = await runWorker(scenarios.map((item) => item.path), privateRun, environment);
+      const imageFormat = [...dod.values()].some(criterion => criterion.required_evidence.includes('png')) ? 'png' : 'webp';
+      const workerExit = await runWorker(scenarios.map((item) => item.path), privateRun, environment, imageFormat);
       for (const scenario of scenarios) {
         verifyFileUnchanged(scenario.path, scenario.sha256, "scenario-changed");
       }
@@ -509,12 +510,12 @@ function isSpecificUrlAssertion(value, app, navigations) {
   return !visited.some((url) => url.includes(wanted));
 }
 
-function runWorker(scenarioPaths, output, environment) {
+function runWorker(scenarioPaths, output, environment, imageFormat) {
   if (scenarioPaths.length === 0) blocked("empty-journey", "No journey was selected");
   return new Promise((resolvePromise, reject) => {
     const child = spawn(
       process.execPath,
-      [join(HERE, "worker.mjs"), ...scenarioPaths, "--out", output, "--jobs", "1", "--force"],
+      [join(HERE, "worker.mjs"), ...scenarioPaths, "--out", output, "--jobs", "1", "--image-format", imageFormat, "--force"],
       { env: environment, stdio: "ignore" },
     );
     child.once("error", () => reject(new CiBlocked("worker-unavailable", "Journey worker could not start")));
@@ -525,7 +526,7 @@ function runWorker(scenarioPaths, output, environment) {
 function observeFlows(bundle, scenarios) {
   const expectedDirectories = new Set(scenarios.map((scenario) => scenario.directory));
   const actualDirectories = readdirSync(bundle, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && entry.name !== 'REPORT.assets')
     .map((entry) => entry.name);
   if (actualDirectories.length !== expectedDirectories.size ||
       actualDirectories.some((name) => !expectedDirectories.has(name))) {

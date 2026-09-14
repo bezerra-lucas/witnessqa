@@ -2,7 +2,20 @@
 
 **AI agents that use your app like a real user — and hand you the evidence.**
 
-The product is a **coverage engine**: discover every screen, assert real content, hand you one self-contained dossier.
+The product is a **coverage engine**: discover every screen, assert real content, hand you an offline evidence bundle.
+
+Screenshots are stored as **lossless WebP** at the captured resolution. The PNG
+returned by Chromium exists only in memory; no original copy is retained.
+Unchanged consecutive captures reuse their encoding and file contents while
+keeping each step's filename and metadata. Reports load images on demand from
+`REPORT.assets/`, with one file per distinct image, instead of embedding every
+capture as Base64. Keep `REPORT.html` and `REPORT.assets/` together when copying a
+report, or download the complete artifact ZIP. Legacy PNG runs remain readable,
+and visual diff compares decoded pixels across PNG/WebP versions.
+
+Node **20.9+** is required. A native CI criterion explicitly requiring `png`
+keeps PNG as that job's single capture format; ordinary `screenshot` evidence
+uses WebP. Changing the format does not remove steps or weaken their assertions.
 
 ```
 $ witnessqa login

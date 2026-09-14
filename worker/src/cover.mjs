@@ -216,7 +216,7 @@ export async function cover({ startUrl, outDir, authFile, maxNodes = 80, prefix 
       const info = Object.fromEntries(Object.entries(await inspect(page)).map(([key, value]) => [key, guard.redactText(value)]));
       const links = (await harvest(page, origin)).map((link) => ({ ...link, href: guard.redactText(link.href), text: guard.redactText(link.text) }));
       pages.push({ url, ...info, links: links.length });
-      await guard.captureScreenshot(page, join(outDir, `${slug(url)}.png`), { fullPage: false });
+      await guard.captureScreenshot(page, join(outDir, `${slug(url)}.webp`), { fullPage: false });
       for (const l of links) {
         edges.push({ from: url, to: l.href, text: l.text, via: l.via });
         if (!visited.has(l.href) && !queue.includes(l.href)) queue.push(l.href);

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { PRIVACY_VERSION } from "./privacy.mjs";
 import { safeEvidencePath } from "./safe-evidence-path.mjs";
+import { safeImagePath, decodeScreenshot } from './evidence-image.mjs';
 
 const req = createRequire(import.meta.url);
 
@@ -26,7 +27,7 @@ function listShots(runDir) {
     }
     if (result.privacyVersion !== PRIVACY_VERSION || !Array.isArray(result.screenshots)) continue;
     for (const name of result.screenshots) {
-      const path = safeEvidencePath(dir, name, { extension: ".png" });
+      const path = safeImagePath(dir, name);
       if (path) out.push({ flow: flow.name, name, path });
     }
   }
@@ -37,7 +38,7 @@ function sha(p) {
   return createHash("sha256").update(readFileSync(p)).digest("hex");
 }
 
-function tryPixelmatch(aPath, bPath, diffPath) {
+async function tryPixelmatch(aPath, bPath, diffPath) {
   let PNG, pixelmatch;
   try {
     PNG = req("pngjs").PNG;
@@ -48,8 +49,8 @@ function tryPixelmatch(aPath, bPath, diffPath) {
   }
   let a, b;
   try {
-    a = PNG.sync.read(readFileSync(aPath));
-    b = PNG.sync.read(readFileSync(bPath));
+    a = await decodeScreenshot(readFileSync(aPath));
+    b = await decodeScreenshot(readFileSync(bPath));
   } catch {
     return null;
   }
@@ -66,25 +67,36 @@ function tryPixelmatch(aPath, bPath, diffPath) {
   return { changed: pct >= 0.15, pct, pixels: n };
 }
 
-export function visualDiff(aDir, bDir, outDir) {
+export async function visualDiff(aDir, bDir, outDir) {
   const a = listShots(aDir);
   const b = listShots(bDir);
-  const bMap = new Map(b.map((s) => [`${s.flow}/${s.name}`, s]));
+  // A codec migration is not an added/removed screenshot. Preserve step identity.
+  const stem = shot => `${shot.flow}/${shot.name.replace(/\.(?:png|webp)$/i, '')}`;
+  const ambiguous = new Set();
+  for (const shots of [a, b]) {
+    const seen = new Set();
+    for (const shot of shots) {
+      if (seen.has(stem(shot))) ambiguous.add(stem(shot));
+      seen.add(stem(shot));
+    }
+  }
+  const identity = shot => ambiguous.has(stem(shot)) ? `${shot.flow}/${shot.name}` : stem(shot);
+  const bMap = new Map(b.map((s) => [identity(s), s]));
   const rows = [];
   if (outDir) mkdirSync(outDir, { recursive: true });
   for (const shot of a) {
     const key = `${shot.flow}/${shot.name}`;
-    const other = bMap.get(key);
+    const other = bMap.get(identity(shot));
     if (!other) {
       rows.push({ key, status: "removed" });
       continue;
     }
-    bMap.delete(key);
+    bMap.delete(identity(shot));
     if (sha(shot.path) === sha(other.path)) {
       rows.push({ key, status: "same", pct: 0 });
       continue;
     }
-    const px = tryPixelmatch(shot.path, other.path, outDir ? join(outDir, `${shot.flow}-${shot.name}`) : null);
+    const px = await tryPixelmatch(shot.path, other.path, outDir ? join(outDir, `${shot.flow}-${shot.name.replace(/\.(?:png|webp)$/i, '')}.png`) : null);
     if (px) rows.push({ key, status: px.changed ? "changed" : "same", ...px });
     else rows.push({ key, status: "changed", pct: null });
   }
@@ -127,7 +139,7 @@ if (isCli) {
     process.exit(1);
   }
   const dest = out || join(b, "vdiff");
-  const d = visualDiff(a, b, dest);
+  const d = await visualDiff(a, b, dest);
   writeFileSync(join(dest, "REPORT.html"), renderVdiffHtml(d));
   console.log(`vdiff: ${d.changed} mudaram · ${d.added} novas · ${d.removed} sumiram`);
   console.log(join(dest, "REPORT.html"));

@@ -122,6 +122,7 @@ export function reportApp(config) {
     const image = element.querySelector('img');
     $('lbImg').src = image.src;
     $('lbImg').alt = image.alt;
+    $('lbDownload').textContent = image.src.startsWith('file:') ? 'Abrir arquivo' : 'Salvar arquivo';
     $('lbCap').textContent = element.dataset.caption;
     $('lbOrigin').textContent = element.dataset.origin;
     $('lbPosition').textContent = `${imageIndex + 1} / ${imageSet.length} · ${test ? 'Evidências deste teste' : 'Referência histórica — fora da execução selecionada'}`;
@@ -152,9 +153,23 @@ export function reportApp(config) {
     let bytes;
     let type;
     if (element.dataset.evidenceKind === 'screenshot') {
-      const base64 = element.querySelector('img').src.split(',')[1];
+      const source = element.querySelector('img').src;
+      if (!source.startsWith('data:')) {
+        // Browsers ignore download= for opaque file:// origins. Open the exact
+        // asset in that case; the browser's Save action preserves its bytes.
+        if (source.startsWith('file:')) {
+          window.open(source, '_blank', 'noopener');
+          return;
+        }
+        const link = document.createElement('a');
+        link.href = source;
+        link.download = element.dataset.filename || 'evidencia';
+        link.click();
+        return;
+      }
+      const base64 = source.split(',')[1];
       bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
-      type = 'image/png';
+      type = source.startsWith('data:image/webp;') ? 'image/webp' : 'image/png';
     } else {
       bytes = Uint8Array.from(atob(element.dataset.contentBase64), char => char.charCodeAt(0));
       type = element.dataset.evidenceKind === 'json' ? 'application/json' : 'text/plain';
@@ -167,6 +182,11 @@ export function reportApp(config) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   document.body.classList.add('ready');
+  for (const element of document.querySelectorAll('[data-evidence-kind="screenshot"]')) {
+    if (element.querySelector('img')?.src.startsWith('file:')) {
+      element.querySelector('[data-download-evidence]').textContent = 'Abrir arquivo';
+    }
+  }
   selectRun(runId);
   followHash();
   window.__reportReady = true;

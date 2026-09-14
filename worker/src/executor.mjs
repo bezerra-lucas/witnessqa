@@ -15,7 +15,8 @@ import { createEvidenceGuard, PRIVACY_VERSION } from "./privacy.mjs";
 
 const NOISE_CONSOLE = /Failed to load resource:.*(favicon|hot-update|\.map|status of 404)|Download the React DevTools|third-party cookie will be blocked/i;
 
-export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, authFile, headed } = {}) {
+export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, authFile, headed, imageFormat = 'webp' } = {}) {
+  if (!['png', 'webp'].includes(imageFormat)) throw new Error('Unsupported screenshot format');
   mkdirSync(evidenceDir, { recursive: true });
   const guard = createEvidenceGuard({ scenario });
   const vp = scenario.viewport ?? viewport ?? { width: 1440, height: 950 };
@@ -91,7 +92,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
       if (page.isClosed()) {
         page = await context.newPage();
       }
-      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result, guard });
+      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result, guard, imageFormat });
       result.steps.push(entry);
       if (!entry.ok) {
         result.verdict = isCrashDetail(entry.detail) ? "blocked" : "fail";
@@ -116,7 +117,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
   } catch (err) {
     result.verdict = isCrashDetail(err) ? "blocked" : "blocked";
     result.failure = guard.redact({ type: "exception", message: String(err).slice(0, 500) });
-    await safeShot(page, join(evidenceDir, "crash-step.png"), guard);
+    await safeShot(page, join(evidenceDir, `crash-step.${imageFormat}`), guard);
     await dumpPage(page, evidenceDir, guard);
   } finally {
     await browser.close().catch(() => {});
@@ -126,9 +127,9 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
   return guard.writeJson(join(evidenceDir, "result.json"), result);
 }
 
-async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard }) {
+async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard, imageFormat }) {
   const entry = { index, step: guard.redact(step), ok: true, detail: "" };
-  const shotName = `step-${String(index).padStart(2, "0")}.png`;
+  const shotName = `step-${String(index).padStart(2, "0")}.${imageFormat}`;
   try {
     if (page.isClosed()) throw new Error("Target closed: page was closed before step");
 

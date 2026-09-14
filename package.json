@@ -36,12 +36,13 @@
   "homepage": "https://github.com/bezerra-lucas/witnessqa#readme",
   "bugs": "https://github.com/bezerra-lucas/witnessqa/issues",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.9.0"
   },
   "dependencies": {
     "pixelmatch": "^7.2.0",
     "playwright-core": "^1.49.0",
     "pngjs": "^7.0.0",
+    "sharp": "0.35.4",
     "yaml": "^2.6.0"
   }
 }

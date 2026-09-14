@@ -8,8 +8,13 @@ const serial = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/
 const badge = (status, label = status) => `<span class="badge ${esc(status.toLowerCase())}">${esc(label.toUpperCase())}</span>`;
 const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC') : 'Não registrado';
 
-export function renderReport(input) {
-  const model = validateReportModel(input);
+export function renderReport(input, { externalImages = false } = {}) {
+  const validated = validateReportModel(input);
+  const imageSource = item => item.kind !== 'screenshot' ? item : { ...item,
+    imageSource: externalImages
+      ? `REPORT.assets/${item.sha256}.${item.contentType === 'image/webp' ? 'webp' : 'png'}`
+      : `data:${item.contentType || 'image/png'};base64,${item.body}` };
+  const model = { ...validated, evidence: validated.evidence.map(imageSource), references: (validated.references || []).map(imageSource) };
   const labels = model.runs.map(run => String(run.label ?? '').trim());
   const runInfo = model.runs.map((run, index) => {
     const tests = model.tests.filter(test => test.runId === run.id);
@@ -118,12 +123,12 @@ function evidenceView(item, flow, test, run, historical = false) {
   return `<article class="evidence${historical ? ' historical' : ''}" id="${item.id}" data-evidence-kind="${image ? 'screenshot' : item.kind}" data-caption="${esc(caption)}" data-origin="${esc(origin)}" data-filename="${esc(item.filename || (image ? 'captura.png' : 'registro.json'))}"${recordBytes}>
     <div class="evidence-heading"><div><span class="eyebrow">${historical ? 'Referência histórica' : 'Evidência'}</span><h4>${esc(item.title)}</h4></div>${historical ? '<span class="badge warn">Outra execução</span>' : image ? '<span class="badge neutral">Captura de tela</span>' : '<span class="badge neutral">Registro de execução</span>'}</div>
     ${historical ? `<p class="notice">${esc(item.note || 'Referência de outra execução; não comprova os testes atuais.')} ${esc(item.sourceStatus ? 'Resultado da origem: ' + item.sourceStatus : '')}</p>` : ''}
-    ${image ? `<button class="image-open" type="button" data-open-evidence="${item.id}" aria-label="Ampliar ${esc(item.title)}"><img src="data:image/png;base64,${item.body}" alt="${esc(item.title)}" loading="lazy"${item.width && item.height ? ` width="${esc(item.width)}" height="${esc(item.height)}"` : ''}></button>` : `<pre tabindex="0">${esc(item.body)}</pre>`}
-    ${item.duplicateOf ? '<p class="duplicate">Duplicata byte a byte de outra captura deste mesmo teste. Arquivo original preservado.</p>' : ''}
+    ${image ? `<button class="image-open" type="button" data-open-evidence="${item.id}" aria-label="Ampliar ${esc(item.title)}"><img src="${esc(item.imageSource)}" alt="${esc(item.title)}" loading="lazy" decoding="async"${item.width && item.height ? ` width="${esc(item.width)}" height="${esc(item.height)}"` : ''}></button>` : `<pre tabindex="0">${esc(item.body)}</pre>`}
+    ${item.duplicateOf ? '<p class="duplicate">Duplicata byte a byte de outra captura deste mesmo teste. O vínculo de cada passo permanece registrado.</p>' : ''}
     ${!historical && item.note ? `<p class="evidence-note">${esc(item.note)}</p>` : ''}
     <div class="proof"><div><strong>O que registra</strong><p>${esc(item.documents || 'Registro visual da execução de origem.')}</p></div><div><strong>O que não comprova</strong><p>${esc(item.limits || 'Não substitui evidências ausentes nem aprova a interface atual.')}</p></div></div>
     <details class="evidence-origin"><summary>Origem e integridade</summary><dl class="origin"><dt>Execução</dt><dd>${esc(run.label)}</dd><dt>Teste</dt><dd>${esc(test?.sourceTestId || 'Vínculo não informado — referência externa aos testes atuais')}</dd><dt>Arquivo</dt><dd>${esc(item.sourceFile)}</dd><dt>Instante da captura</dt><dd>${esc(date(item.capturedAt))}</dd><dt>SHA-256 do conteúdo mostrado</dt><dd>${esc(item.sha256)}</dd>${item.stepIndex != null ? `<dt>Passo associado</dt><dd>${Number(item.stepIndex) + 1}</dd>` : ''}</dl></details>
-    <div class="evidence-actions"><a href="#${item.id}" class="permalink">Link desta ${historical ? 'referência' : 'evidência'}</a><button class="button js-only" type="button" data-download-evidence="${item.id}">Salvar ${image ? 'PNG original' : 'registro'}</button></div>
+    <div class="evidence-actions"><a href="#${item.id}" class="permalink">Link desta ${historical ? 'referência' : 'evidência'}</a><button class="button js-only" type="button" data-download-evidence="${item.id}">Salvar ${image ? 'imagem' : 'registro'}</button></div>
   </article>`;
 }
 

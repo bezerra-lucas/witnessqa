@@ -67,10 +67,11 @@ Supported required evidence kinds are:
 | Kind | Sanitized artifact |
 | --- | --- |
 | `json` | Per-flow `result.json` |
-| `screenshot` or `png` | Last referenced PNG |
+| `screenshot` | Last referenced screenshot (lossless WebP by default) |
+| `png` | Last referenced PNG; an explicit PNG requirement selects PNG capture for the job |
 | `html` | Sanitized `page.html` |
 | `url` or `text` | Sanitized `url.txt` |
-| `report` | Regenerated allowlisted `REPORT.html` |
+| `report` | Regenerated allowlisted `REPORT.html`; keep its `REPORT.assets/` directory when downloading |
 
 Credentials are provided only through declared `DOMOD_*` or `WITNESS_*`
 variables. Browser selection may additionally use

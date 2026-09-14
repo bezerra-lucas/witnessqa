@@ -50,6 +50,7 @@ const outDir = arg("--out", join("runs", String(Date.now())));
 const authFile = arg("--auth", "");
 const headed = process.argv.includes("--headed");
 const force = process.argv.includes("--force");
+const imageFormat = arg("--image-format", "webp");
 const jobs = Math.max(1, Number(arg("--jobs", "1")) || 1);
 mkdirSync(outDir, { recursive: true });
 
@@ -76,12 +77,14 @@ async function runOne(file) {
       results.push(result);
       return;
     }
-    discardLegacyEvidence(evidenceDir);
     const reason = previous.privacyVersion === guard.privacyVersion ? "veredito inválido" : "evidência legada";
     console.log(`▶ ${scenario.name}\n  · ${reason}; descartando e reexecutando`);
   }
+  // A fresh attempt replaces the previous evidence, including another codec.
+  // Resumed runs return above; their immutable captured files stay untouched.
+  if (existsSync(evidenceDir)) discardLegacyEvidence(evidenceDir);
   console.log(`▶ ${scenario.name}`);
-  let result = await runScenario(scenario, { evidenceDir, baseUrl, authFile: authFile || undefined, headed });
+  let result = await runScenario(scenario, { evidenceDir, baseUrl, authFile: authFile || undefined, headed, imageFormat });
   const normalized = normalizeFlowResult(result);
   if (normalized !== result) {
     result = guard.writeJson(join(evidenceDir, "result.json"), normalized);
@@ -136,7 +139,7 @@ createEvidenceGuard().writeText(join(outDir, "REPORT.md"), report);
 
 function discardLegacyEvidence(evidenceDir) {
   for (const name of readdirSync(evidenceDir)) {
-    if (!/^(?:result\.json|page\.html|url\.txt|.+\.png)$/.test(name)) continue;
+    if (!/^(?:result\.json|page\.html|url\.txt|.+\.(?:png|webp))$/.test(name)) continue;
     unlinkSync(join(evidenceDir, name));
   }
 }

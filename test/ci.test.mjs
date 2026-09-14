@@ -58,7 +58,7 @@ function filesBelow(directory) {
   });
 }
 
-function makeRequest(directory, port) {
+function makeRequest(directory, port, imageKind = 'screenshot') {
   const subject = join(directory, "subject");
   const inputs = join(directory, "inputs");
   const scenarios = join(directory, "scenarios");
@@ -90,7 +90,7 @@ function makeRequest(directory, port) {
   const dodPath = join(inputs, "dod.json");
   const dodSha = writeJson(dodPath, {
     schema: "domod-dod/v1",
-    criteria: [{ id: "account-home", required_evidence: ["json", "screenshot", "html", "url", "report"] }],
+    criteria: [{ id: "account-home", required_evidence: ["json", imageKind, "html", "url", "report"] }],
   });
   const planPath = join(inputs, "plan.json");
   const planSha = writeJson(planPath, {
@@ -130,7 +130,7 @@ function makeRequest(directory, port) {
   return { requestPath, scenarios, jobSha, headSha, dodSha, planSha };
 }
 
-test("ci executes a real planned journey and emits a sanitized result bound to its inputs", async () => {
+for (const imageKind of ['screenshot', 'png']) test(`ci executes a real planned journey with ${imageKind} evidence bound to its inputs`, async () => {
   const server = spawn(process.execPath, [join(root, "test/fixtures/serve.mjs")], {
     env: { ...process.env, PORT: "0" },
     stdio: "pipe",
@@ -140,7 +140,7 @@ test("ci executes a real planned journey and emits a sanitized result bound to i
     const directory = mkdtempSync(join(tmpdir(), "witness-ci-"));
     const harness = cleanHarness(directory);
     const output = join(directory, "output");
-    const fixture = makeRequest(directory, port);
+    const fixture = makeRequest(directory, port, imageKind);
 
     const completed = withUmask(0o002, () =>
       spawnSync(
@@ -173,7 +173,7 @@ test("ci executes a real planned journey and emits a sanitized result bound to i
     assert.equal(result.criteria[0].status, "observed");
     assert.deepEqual(
       result.criteria[0].evidence.map((item) => item.kind),
-      ["json", "screenshot", "html", "url", "report"],
+      ["json", imageKind, "html", "url", "report"],
     );
     for (const evidence of result.criteria[0].evidence) {
       const evidencePath = join(output, evidence.path);
@@ -181,6 +181,10 @@ test("ci executes a real planned journey and emits a sanitized result bound to i
       assert.equal(evidence.sha256, sha256(bytes));
       assert.equal(evidence.privacy_version, 1);
       assert.equal(statSync(evidencePath).mode & 0o022, 0, `${evidence.path} is group/world writable`);
+      if (evidence.kind === imageKind) {
+        assert.ok(evidence.path.endsWith(imageKind === 'png' ? '.png' : '.webp'));
+        assert.equal(imageKind === 'png' ? bytes.subarray(1, 4).toString() : bytes.subarray(8, 12).toString(), imageKind === 'png' ? 'PNG' : 'WEBP');
+      }
     }
     const observation = readFileSync(join(output, result.observation.path));
     assert.equal(result.observation.sha256, sha256(observation));

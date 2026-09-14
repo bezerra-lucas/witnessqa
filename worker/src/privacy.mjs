@@ -1,4 +1,6 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { extname } from "node:path";
+import { encodeScreenshot, imageDigest, writeImage } from "./evidence-image.mjs";
 
 export const PRIVACY_VERSION = 1;
 export const REDACTED = "[REDACTED]";
@@ -28,6 +30,9 @@ export function securePrivateFile(path) {
 }
 
 export function createEvidenceGuard({ scenario = {}, env = process.env, additionalSecrets = [] } = {}) {
+  // One previous frame per guard bounds memory and avoids encoding unchanged
+  // assertions repeatedly. Each step retains its own filename and provenance.
+  let previousCapture;
   const secrets = collectSecrets(scenario, env, additionalSecrets);
   const selectors = [
     ...DEFAULT_MASK_SELECTORS,
@@ -138,7 +143,14 @@ export function createEvidenceGuard({ scenario = {}, env = process.env, addition
     try {
       const mask = selectors.map((selector) => page.locator(selector));
       for (const secret of secrets) mask.push(page.getByText(secret, { exact: false }));
-      await page.screenshot({ ...options, path, mask, maskColor: "#000000" });
+      const format = extname(path).slice(1).toLowerCase();
+      if (!['png', 'webp'].includes(format)) throw new Error('Unsupported screenshot format');
+      const png = await page.screenshot({ ...options, path: undefined, type: 'png', mask, maskColor: "#000000" });
+      const key = `${format}:${imageDigest(png)}`;
+      const same = previousCapture?.key === key;
+      const bytes = same ? previousCapture.bytes : await encodeScreenshot(png, format);
+      writeImage(path, bytes, same ? previousCapture.path : undefined);
+      previousCapture = { key, bytes, path };
       return true;
     } catch {
       rmSync(path, { force: true });
