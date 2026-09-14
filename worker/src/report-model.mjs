@@ -5,6 +5,7 @@ import { basename, join, resolve } from 'node:path';
 import { classifyFlow, cleanErrors, describeFlow, displayTitle, firstGoto } from './classify.mjs';
 import { createEvidenceGuard, PRIVACY_VERSION } from './privacy.mjs';
 import { safeEvidencePath } from './safe-evidence-path.mjs';
+import { safeImagePath, imageType, imageDimensions } from './evidence-image.mjs';
 
 export const REPORT_SCHEMA = 'witnessqa-report/v1';
 export const digest = value => createHash('sha256').update(value).digest('hex');
@@ -86,6 +87,9 @@ export function validateReportModel(model) {
 function validateContent(item) {
   if (typeof item.body !== 'string' || !/^[a-f0-9]{64}$/.test(item.sha256 ?? '')) throw new Error('Evidence needs content and a digest');
   if (item.kind === 'screenshot') {
+    if (item.contentType != null && !['image/png', 'image/webp'].includes(item.contentType)) {
+      throw new Error('Unsupported screenshot media type');
+    }
     const dimensions = [item.width, item.height];
     if (!dimensions.every(value => value == null) &&
         !dimensions.every(value => Number.isSafeInteger(value) && value > 0 && value <= 0x7fffffff)) {
@@ -160,18 +164,17 @@ export function buildReportModel(input) {
       const shots = [];
       for (const name of new Set(Array.isArray(result.screenshots) ? result.screenshots : [])) {
         if (result.privacyVersion !== PRIVACY_VERSION) { test.omissions++; continue; }
-        const file = safeEvidencePath(join(root, entry.name), name, { extension: '.png' });
+        const file = safeImagePath(join(root, entry.name), name);
         if (!file) { test.omissions++; continue; }
         const bytes = readFileSync(file);
         if (!bytes.length) { test.omissions++; continue; }
         const step = test.steps.find(step => step.screenshot === name);
         const metadata = result.evidenceMetadata?.find?.(item => item.file === name);
-        const hasHeader = bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
         shots.push({ id: reportId('evidence', `${testId}:${name}`), runId, testId,
           kind: 'screenshot', title: metadata?.label || (step ? `Captura do passo ${step.index + 1}` : name),
           filename: name, sourceFile: `${displayDirectory}/${name}`,
-          body: bytes.toString('base64'), contentType: 'image/png', sha256: digest(bytes),
-          width: hasHeader ? bytes.readUInt32BE(16) : null, height: hasHeader ? bytes.readUInt32BE(20) : null,
+          body: bytes.toString('base64'), contentType: imageType(name), sha256: digest(bytes),
+          ...imageDimensions(bytes),
           capturedAt: metadata?.capturedAt || null, stepIndex: step?.index ?? null,
           featured: false, requestedHighlight: metadata?.highlight === true,
           documents: 'Registra a aparência da interface neste ponto do teste.',

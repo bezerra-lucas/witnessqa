@@ -2,26 +2,25 @@
  * WitnessQA worker — roda uma lista de cenários contra um app e gera o relatório.
  * `node src/worker.mjs scenarios/ --base-url https://app.com --out runs/<ts>`
  */
-import { readdirSync, mkdirSync, readFileSync, statSync, existsSync, unlinkSync } from "node:fs";
+import { readdirSync, mkdirSync, readFileSync, statSync, lstatSync, existsSync, unlinkSync } from "node:fs";
 import { join, basename } from "node:path";
 import yaml from "yaml";
+import { parseArgs } from 'node:util';
+import { parseJobs, capturePolicy } from './runtime-options.mjs';
+import { launchBrowser } from './browser.mjs';
+import { artifactBytes } from './metrics.mjs';
 import { parseScenario } from "./scenario.mjs";
 import { runScenario } from "./executor.mjs";
 import { investigateFailure, byokConfigured } from "./byok.mjs";
 import { packRun } from "./packer.mjs";
 import { createEvidenceGuard } from "./privacy.mjs";
-import { isKnownFlowVerdict, normalizeFlowResult, workerExitCode } from "./verdict.mjs";
-
-function arg(flag, fallback) {
-  const i = process.argv.indexOf(flag);
-  return i > -1 ? process.argv[i + 1] : fallback;
-}
+import { normalizeFlowResult, workerExitCode } from "./verdict.mjs";
 
 function collectFiles(targets) {
   const files = [];
   for (const t of targets) {
     if (!t || t.startsWith("--")) continue;
-    if (!existsSync(t)) continue;
+    if (!existsSync(t)) throw new Error("Scenario target does not exist");
     if (statSync(t).isDirectory()) {
       files.push(
         ...readdirSync(t)
@@ -35,53 +34,62 @@ function collectFiles(targets) {
   return files;
 }
 
-const rawTargets = [];
-for (let i = 2; i < process.argv.length; i++) {
-  const a = process.argv[i];
-  if (a.startsWith("--")) {
-    i += 1;
-    continue;
+const started = performance.now();
+const cpuStart = process.cpuUsage();
+const { values, positionals: rawTargets } = parseArgs({ allowPositionals: true, options: {
+  'base-url': { type: 'string', default: '' }, out: { type: 'string', default: join('runs', String(Date.now())) },
+  auth: { type: 'string' }, headed: { type: 'boolean' }, force: { type: 'boolean' },
+  jobs: { type: 'string', default: process.env.WITNESS_JOBS ?? '1' },
+  'image-format': { type: 'string', default: 'webp' }, capture: { type: 'string', default: 'all' },
+} });
+const baseUrl = values['base-url'];
+const outDir = values.out;
+const authFile = values.auth;
+const headed = values.headed;
+const imageFormat = values['image-format'];
+if (!['png', 'webp'].includes(imageFormat)) throw new Error('Unsupported screenshot format');
+const capture = capturePolicy(values.capture);
+const jobs = parseJobs(values.jobs);
+const files = [...new Set(collectFiles(rawTargets.length ? rawTargets : ['.']))];
+if (!files.length) { console.error('nenhum cenário .yaml/.json encontrado'); process.exit(2); }
+// Validate every scenario before starting any browser or modifying old evidence.
+const planned = files.map(file => ({ file, scenario: parseScenario(readFileSync(file, 'utf8'), yaml),
+  directory: basename(file).replace(/\.(ya?ml|json)$/, '') }));
+if (new Set(planned.map(item => item.directory)).size !== planned.length ||
+    planned.some(item => !item.directory || item.directory.startsWith('.') || /[\\/\x00-\x1f]/.test(item.directory) || item.directory === 'REPORT.assets')) {
+  throw new Error('Scenario filenames must be safe and unique in the evidence directory');
+}
+if (existsSync(outDir) && (!lstatSync(outDir).isDirectory() || lstatSync(outDir).isSymbolicLink())) {
+  throw new Error('Output must be a regular directory');
+}
+mkdirSync(outDir, { recursive: true, mode: 0o700 });
+for (const name of readdirSync(outDir)) {
+  const path = join(outDir, name);
+  if (lstatSync(path).isSymbolicLink()) throw new Error('Output contains a symlink');
+  if (lstatSync(path).isDirectory() && existsSync(join(path, 'result.json')) && !planned.some(item => item.directory === name)) {
+    throw new Error('Output contains results outside the selected suite; use a new --out directory');
   }
-  rawTargets.push(a);
 }
-
-const baseUrl = arg("--base-url", "");
-const outDir = arg("--out", join("runs", String(Date.now())));
-const authFile = arg("--auth", "");
-const headed = process.argv.includes("--headed");
-const force = process.argv.includes("--force");
-const jobs = Math.max(1, Number(arg("--jobs", "1")) || 1);
-mkdirSync(outDir, { recursive: true });
-
-const files = collectFiles(rawTargets.length ? rawTargets : ["."]);
-if (!files.length) {
-  console.error("nenhum cenário .yaml/.json encontrado");
-  process.exit(2);
+for (const item of planned) {
+  const dir = join(outDir, item.directory);
+  if (existsSync(dir)) discardLegacyEvidence(dir);
 }
+// Never reuse a verdict just because result.json exists. A mutable preview URL
+// cannot establish the revision, data or session that produced that verdict.
+let analysisTail = Promise.resolve();
+let analysisMs = 0;
+let analysisError;
+let browserLaunches = 0;
 
 console.log(`WitnessQA — ${files.length} cenário(s) contra ${baseUrl || "(urls dos cenários)"}\n`);
 
 const results = [];
 
-async function runOne(file) {
-  const scenario = parseScenario(readFileSync(file, "utf8"), yaml);
+async function runOne({ scenario, directory }, acquireBrowser) {
   const guard = createEvidenceGuard({ scenario });
-  const evidenceDir = join(outDir, basename(file).replace(/\.(ya?ml|json)$/, ""));
-  const prev = join(evidenceDir, "result.json");
-  if (!force && existsSync(prev)) {
-    const previous = JSON.parse(readFileSync(prev, "utf8"));
-    if (previous.privacyVersion === guard.privacyVersion && isKnownFlowVerdict(previous.verdict)) {
-      const result = guard.redact(previous);
-      console.log(`▶ ${scenario.name}\n  · resume ${result.verdict?.toUpperCase?.() ?? "?"}`);
-      results.push(result);
-      return;
-    }
-    discardLegacyEvidence(evidenceDir);
-    const reason = previous.privacyVersion === guard.privacyVersion ? "veredito inválido" : "evidência legada";
-    console.log(`▶ ${scenario.name}\n  · ${reason}; descartando e reexecutando`);
-  }
+  const evidenceDir = join(outDir, directory);
   console.log(`▶ ${scenario.name}`);
-  let result = await runScenario(scenario, { evidenceDir, baseUrl, authFile: authFile || undefined, headed });
+  let result = await runScenario(scenario, { evidenceDir, baseUrl, authFile: authFile || undefined, headed, imageFormat, capture, acquireBrowser });
   const normalized = normalizeFlowResult(result);
   if (normalized !== result) {
     result = guard.writeJson(join(evidenceDir, "result.json"), normalized);
@@ -90,28 +98,43 @@ async function runOne(file) {
   console.log(`  ${icon} ${result.verdict.toUpperCase()} (${result.steps.length} steps)`);
   if (result.failure) console.log(`    └ ${JSON.stringify(guard.redact(result.failure)).slice(0, 200)}`);
 
-  if (result.verdict !== "pass") {
-    const analysis = await investigateFailure(result, evidenceDir, { guard });
-    if (analysis) {
-      result.analysis = analysis;
-      guard.writeJson(join(evidenceDir, "result.json"), result);
-      console.log(`    └ causa: ${guard.redactText(analysis.cause)} (bug=${analysis.isBug}, confiança=${analysis.confidence})`);
-    }
-  }
   results.push(result);
-  if (results.length % 10 === 0) {
-    try { packRun(outDir); } catch { /* pack parcial */ }
+  if (result.verdict !== 'pass' && byokConfigured()) {
+    // One bounded provider lane, independent of browser slots. Persist the
+    // observed verdict immediately; a model can only add analysis.
+    analysisTail = analysisTail.then(async () => {
+      const start = performance.now();
+      const analysis = await investigateFailure(result, evidenceDir, { guard });
+      analysisMs += performance.now() - start;
+      if (analysis) { result.analysis = analysis; guard.writeJson(join(evidenceDir, 'result.json'), result); }
+    }).catch(error => { analysisError = error; });
   }
 }
 
-const queue = [...files];
+const queue = [...planned];
 const workers = Array.from({ length: Math.min(jobs, queue.length) }, async () => {
-  while (queue.length) {
-    const file = queue.shift();
-    if (file) await runOne(file);
-  }
+  let browser;
+  let uses = 0;
+  const acquireBrowser = async () => {
+    if (!browser?.isConnected() || uses >= 20) {
+      await browser?.close().catch(() => {});
+      browser = await launchBrowser({ headless: !headed });
+      browserLaunches += 1;
+      uses = 0;
+    }
+    uses += 1;
+    return browser;
+  };
+  try {
+    while (queue.length) await runOne(queue.shift(), acquireBrowser);
+  } finally { await browser?.close().catch(() => {}); }
 });
-await Promise.all(workers);
+// Wait for every lane before surfacing an error so resources are always closed.
+const completed = await Promise.allSettled(workers);
+await analysisTail;
+const rejected = completed.find(result => result.status === 'rejected');
+if (rejected) throw rejected.reason;
+if (analysisError) throw analysisError;
 
 const failed = results.filter((r) => r.verdict === "fail");
 const blocked = results.filter((r) => r.verdict === "blocked");
@@ -136,16 +159,30 @@ createEvidenceGuard().writeText(join(outDir, "REPORT.md"), report);
 
 function discardLegacyEvidence(evidenceDir) {
   for (const name of readdirSync(evidenceDir)) {
-    if (!/^(?:result\.json|page\.html|url\.txt|.+\.png)$/.test(name)) continue;
+    if (!/^(?:result\.json|page\.html|url\.txt|.+\.(?:png|webp))$/.test(name)) continue;
     unlinkSync(join(evidenceDir, name));
   }
 }
 
+const reportStarted = performance.now();
+let reportFailed = false;
 try {
   const packed = packRun(outDir);
   console.log(`\nlaudo: ${packed.path}  (${packed.stamp})`);
 } catch (e) {
+  reportFailed = true;
   console.log(`\nrelatório md: ${join(outDir, "REPORT.md")}  (html falhou: ${e.message})`);
 }
 
-process.exitCode = workerExitCode(results);
+const cpu = process.cpuUsage(cpuStart);
+createEvidenceGuard().writeJson(join(outDir, 'METRICS.json'), {
+  schema: 'witnessqa-metrics/v1', privacyVersion: 1, durationMs: performance.now() - started,
+  jobs, browserLaunches, capturePolicy: capture, scenarios: results.length,
+  screenshots: results.reduce((sum, result) => sum + result.screenshots.length, 0),
+  phasesMs: { report: performance.now() - reportStarted, analysis: analysisMs },
+  workerCpuMs: (cpu.user + cpu.system) / 1000,
+  workerPeakRssBytes: process.resourceUsage().maxRSS * 1024,
+  resourceScope: 'Node worker only; browser processes excluded. Phase times can overlap.',
+  artifactBytes: artifactBytes(outDir),
+});
+process.exitCode = reportFailed ? 2 : workerExitCode(results);

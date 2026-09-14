@@ -1,0 +1,15 @@
+services:
+  witness:
+    build: .
+    init: true
+    user: "${WITNESS_UID:-1000}:${WITNESS_GID:-1000}"
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 256
+    shm_size: 256m
+    volumes:
+      - "${WITNESS_PROJECT_DIR:-.}:/work"
+    environment:
+      WITNESS_MAX_JOBS: "2"
+      WITNESS_JOBS: "1"
+    command: ["run", "witness", "--out", ".witness/runs/latest"]

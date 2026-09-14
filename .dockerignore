@@ -1,0 +1,8 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!cli.mjs
+!worker
+!worker/src
+!worker/src/**

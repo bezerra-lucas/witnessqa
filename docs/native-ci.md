@@ -67,10 +67,11 @@ Supported required evidence kinds are:
 | Kind | Sanitized artifact |
 | --- | --- |
 | `json` | Per-flow `result.json` |
-| `screenshot` or `png` | Last referenced PNG |
+| `screenshot` | Last referenced screenshot (lossless WebP by default) |
+| `png` | Last referenced PNG; an explicit PNG requirement selects PNG capture for the job |
 | `html` | Sanitized `page.html` |
 | `url` or `text` | Sanitized `url.txt` |
-| `report` | Regenerated allowlisted `REPORT.html` |
+| `report` | Regenerated allowlisted `REPORT.html`; keep its `REPORT.assets/` directory when downloading |
 
 Credentials are provided only through declared `DOMOD_*` or `WITNESS_*`
 variables. Browser selection may additionally use
@@ -133,3 +134,17 @@ trusted job. Keep the scenario directory and ephemeral credentials outside `/opt
 outside the pull-request checkout. The system-level `safe.directory` entry is
 needed because the immutable checkout is root-owned while the identity probe
 runs as the unprivileged job user.
+
+## Runtime resource budget
+
+Declare `WITNESS_JOBS` and optionally `WITNESS_MAX_JOBS` in the request's
+`environment_names` to configure bounded scenario concurrency. The default is
+one slot; the maximum configurable ceiling is 16. Keep one slot when scenarios
+share mutable backend data. Each scenario receives a fresh browser context,
+while a browser process can serve up to 20 scenarios before recycling.
+
+Native CI always captures every step and executes into a fresh directory. It
+ignores ordinary capture preferences and does not reuse an old verdict. A declared
+`ready` condition and `assertionTimeoutMs` are validated as part of the scenario.
+`METRICS.json` is diagnostic only and does not satisfy an acceptance criterion.
+See [runner setup](runner.md) and [performance](performance/runner.md).

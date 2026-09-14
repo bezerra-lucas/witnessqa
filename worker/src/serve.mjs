@@ -1,5 +1,5 @@
 /**
- * Serve o laudo self-contained. Sempre imprime URL http://127.0.0.1.
+ * Serve o laudo e suas imagens. Sempre imprime URL http://127.0.0.1.
  * Uso: node src/serve.mjs <run-dir> [porta]
  */
 import { createServer } from "node:http";
@@ -12,6 +12,7 @@ const TYPES = {
   ".html": "text/html; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
+  ".webp": "image/webp",
   ".jpg": "image/jpeg",
   ".css": "text/css",
 };

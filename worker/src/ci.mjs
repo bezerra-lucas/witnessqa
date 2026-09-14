@@ -17,6 +17,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
+import { parseJobs } from './runtime-options.mjs';
+import { parseScenario } from './scenario.mjs';
 import { normalizeExpectText } from "./classify.mjs";
 import { exportArtifact } from "./export-artifact.mjs";
 
@@ -69,7 +71,8 @@ export async function executeCi(jobPathValue, outputValue, identity) {
     const privateRun = mkdtempSync(join(tmpdir(), "witnessqa-ci-run-"));
     chmodSync(privateRun, 0o700);
     try {
-      const workerExit = await runWorker(scenarios.map((item) => item.path), privateRun, environment);
+      const imageFormat = [...dod.values()].some(criterion => criterion.required_evidence.includes('png')) ? 'png' : 'webp';
+      const workerExit = await runWorker(scenarios.map((item) => item.path), privateRun, environment, imageFormat);
       for (const scenario of scenarios) {
         verifyFileUnchanged(scenario.path, scenario.sha256, "scenario-changed");
       }
@@ -413,6 +416,7 @@ function selectScenarios(plan, scenarioRoot, environment, subjectCheckout) {
 }
 
 function validateScenario(document, environment, subjectCheckout) {
+  try { parseScenario(document, YAML); } catch { blocked('invalid-scenario', 'Invalid scenario readiness or metadata'); }
   if (!document || typeof document !== "object" || typeof document.name !== "string" ||
       !SCENARIO_ID.test(document.name) || !Array.isArray(document.steps) || document.steps.length < 2) {
     blocked("invalid-scenario", "Scenario is not a real journey");
@@ -509,12 +513,15 @@ function isSpecificUrlAssertion(value, app, navigations) {
   return !visited.some((url) => url.includes(wanted));
 }
 
-function runWorker(scenarioPaths, output, environment) {
+function runWorker(scenarioPaths, output, environment, imageFormat) {
   if (scenarioPaths.length === 0) blocked("empty-journey", "No journey was selected");
+  let jobs;
+  try { jobs = parseJobs(environment.WITNESS_JOBS ?? '1', environment); }
+  catch { blocked('invalid-jobs', 'WITNESS_JOBS exceeds the configured runner budget'); }
   return new Promise((resolvePromise, reject) => {
     const child = spawn(
       process.execPath,
-      [join(HERE, "worker.mjs"), ...scenarioPaths, "--out", output, "--jobs", "1", "--force"],
+      [join(HERE, "worker.mjs"), ...scenarioPaths, "--out", output, "--jobs", String(jobs), "--capture", "all", "--image-format", imageFormat, "--force"],
       { env: environment, stdio: "ignore" },
     );
     child.once("error", () => reject(new CiBlocked("worker-unavailable", "Journey worker could not start")));
@@ -525,7 +532,7 @@ function runWorker(scenarioPaths, output, environment) {
 function observeFlows(bundle, scenarios) {
   const expectedDirectories = new Set(scenarios.map((scenario) => scenario.directory));
   const actualDirectories = readdirSync(bundle, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && entry.name !== 'REPORT.assets')
     .map((entry) => entry.name);
   if (actualDirectories.length !== expectedDirectories.size ||
       actualDirectories.some((name) => !expectedDirectories.has(name))) {

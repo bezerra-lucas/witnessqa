@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, existsSync, writeFileSync } from 
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { PNG } from "pngjs";
+import { decodeScreenshot } from "../worker/src/evidence-image.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 function waitForServerPort(server, ms = 8000) {
@@ -119,7 +119,7 @@ test("e2e fixture: 3 pass + 1 fail, sanitized HTML dossier generated", async () 
       }
     }
 
-    const shot = PNG.sync.read(readFileSync(join(out, "privacy", "step-01.png")));
+    const shot = await decodeScreenshot(readFileSync(join(out, "privacy", "step-01.webp")));
     const customSelectorPixel = (270 * shot.width + 30) * 4;
     assert.deepEqual([...shot.data.subarray(customSelectorPixel, customSelectorPixel + 3)], [0, 0, 0], "custom redaction selectors must be masked black");
     const pixel = (310 * shot.width + 30) * 4;

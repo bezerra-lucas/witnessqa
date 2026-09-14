@@ -1,0 +1,130 @@
+{
+  "baseline_commit": "28542101fda488c2ccf3309fd2e6eb1b4daea265",
+  "node": "24.19.0",
+  "playwright": "1.62.1",
+  "chromium": "153.0.8010.0",
+  "cpu_affinity": [
+    0,
+    1
+  ],
+  "fixture": "12 dashboard scenarios, 6 steps each, 120 rows, 200ms readiness delay; no LLM or external network",
+  "measurement": "wall clock; CPU wait4 user+system; process-tree PSS/RSS sampled approximately every 100ms; logical file sizes",
+  "notes": "images-final-cache includes the bounded libvips cache. Two before and two initial after runs; one final verification. Fixture is deliberately repetitive; not DOMOD production measurements. No fixed waits or assertions removed.",
+  "runs": [
+    {
+      "label": "images-before-r1",
+      "wall_s": 20.592611054000372,
+      "cpu_s": 5.484756000000001,
+      "peak_rss_mib": 1024.87890625,
+      "peak_pss_mib": 480.7626953125,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 189,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 20.403350830078125,
+      "png_count": 72,
+      "html_mib": 11.681386947631836,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "images-after-r1",
+      "wall_s": 21.04597744700004,
+      "cpu_s": 6.0651660000000005,
+      "peak_rss_mib": 1098.8515625,
+      "peak_pss_mib": 578.3701171875,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 191,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 3.64682674407959,
+      "png_count": 0,
+      "html_mib": 0.29952526092529297,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "images-after-r2",
+      "wall_s": 21.075628478999533,
+      "cpu_s": 6.345028,
+      "peak_rss_mib": 1086.90625,
+      "peak_pss_mib": 566.0224609375,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 191,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 3.64682674407959,
+      "png_count": 0,
+      "html_mib": 0.29952526092529297,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "images-before-r2",
+      "wall_s": 20.703411417000098,
+      "cpu_s": 5.364072,
+      "peak_rss_mib": 1050.59765625,
+      "peak_pss_mib": 534.2060546875,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 190,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 20.403350830078125,
+      "png_count": 72,
+      "html_mib": 11.681386947631836,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    },
+    {
+      "label": "images-final-cache",
+      "wall_s": 21.151937951000946,
+      "cpu_s": 6.262936999999999,
+      "peak_rss_mib": 1096.140625,
+      "peak_pss_mib": 571.4912109375,
+      "peak_processes": 13,
+      "exit": 0,
+      "samples": 191,
+      "affinity": [
+        0,
+        1
+      ],
+      "artifact_mib": 3.647353172302246,
+      "png_count": 0,
+      "html_mib": 0.3000516891479492,
+      "verdicts": {
+        "pass": 12,
+        "fail": 0,
+        "blocked": 0,
+        "warn": 0
+      }
+    }
+  ]
+}

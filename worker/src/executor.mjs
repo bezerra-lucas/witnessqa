@@ -12,10 +12,17 @@ import { join } from "node:path";
 import { launchBrowser } from "./browser.mjs";
 import { expandEnv, isCrashDetail, normalizeExpectText, isNoiseMessage, isNoiseNetwork } from "./classify.mjs";
 import { createEvidenceGuard, PRIVACY_VERSION } from "./privacy.mjs";
+import { capturePolicy, shouldCapture } from './runtime-options.mjs';
+import { waitForText, waitUntilReady } from './conditions.mjs';
+import { phaseMetrics } from './metrics.mjs';
 
 const NOISE_CONSOLE = /Failed to load resource:.*(favicon|hot-update|\.map|status of 404)|Download the React DevTools|third-party cookie will be blocked/i;
 
-export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, authFile, headed } = {}) {
+export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, authFile, headed, imageFormat = 'webp', capture = 'all', browser: sharedBrowser, acquireBrowser } = {}) {
+  if (!['png', 'webp'].includes(imageFormat)) throw new Error('Unsupported screenshot format');
+  capturePolicy(capture);
+  const metrics = phaseMetrics();
+  const started = performance.now();
   mkdirSync(evidenceDir, { recursive: true });
   const guard = createEvidenceGuard({ scenario });
   const vp = scenario.viewport ?? viewport ?? { width: 1440, height: 950 };
@@ -42,23 +49,28 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     evidenceMetadata: [],
     failure: null,
     privacyVersion: PRIVACY_VERSION,
+    capturePolicy: capture,
+    metrics: { phasesMs: metrics.phases },
     startedAt: new Date().toISOString(),
   };
 
   let browser;
+  let context;
+  let page;
   try {
-    browser = await launchBrowser({ headless: headed !== true });
+    browser = sharedBrowser ?? await metrics.measure('browserAcquire', () => acquireBrowser ? acquireBrowser() : launchBrowser({ headless: headed !== true }));
+    if (auth && !existsSync(auth)) throw new Error('Configured storage state file is missing');
+    context = await metrics.measure('context', () => browser.newContext({ viewport: vp, ...(auth ? { storageState: auth } : {}) }));
+    page = await context.newPage();
   } catch (err) {
     result.verdict = "blocked";
     result.failure = guard.redact({ type: "browser", message: String(err).slice(0, 400) });
+    await context?.close().catch(() => {});
+    if (!sharedBrowser && !acquireBrowser) await browser?.close().catch(() => {});
     result.finishedAt = new Date().toISOString();
+    result.metrics.durationMs = performance.now() - started;
     return guard.writeJson(join(evidenceDir, "result.json"), result);
   }
-
-  const contextOpts = { viewport: vp };
-  if (auth && existsSync(auth)) contextOpts.storageState = auth;
-  const context = await browser.newContext(contextOpts);
-  let page = await context.newPage();
 
   page.on("console", (m) => {
     if (m.type() !== "error") return;
@@ -88,10 +100,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
 
   try {
     for (const [i, step] of scenario.steps.entries()) {
-      if (page.isClosed()) {
-        page = await context.newPage();
-      }
-      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result, guard });
+      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result, guard, imageFormat, capture, metrics, ready: scenario.ready, timeout: scenario.assertionTimeoutMs ?? 8000, final: i === scenario.steps.length - 1 });
       result.steps.push(entry);
       if (!entry.ok) {
         result.verdict = isCrashDetail(entry.detail) ? "blocked" : "fail";
@@ -102,7 +111,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     }
 
     if (result.verdict === "pass") {
-      result.brokenImages = guard.redact(await findBrokenImages(page));
+      if (scenario.checks?.includes('noBrokenImages')) result.brokenImages = guard.redact(await metrics.measure('imageChecks', () => findBrokenImages(page)));
       if (scenario.checks?.includes("noBrokenImages") && result.brokenImages.length) {
         result.verdict = "fail";
         result.failure = { type: "brokenImages", images: result.brokenImages };
@@ -114,28 +123,35 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
       await dumpPage(page, evidenceDir, guard);
     }
   } catch (err) {
-    result.verdict = isCrashDetail(err) ? "blocked" : "blocked";
+    result.verdict = "blocked";
     result.failure = guard.redact({ type: "exception", message: String(err).slice(0, 500) });
-    await safeShot(page, join(evidenceDir, "crash-step.png"), guard);
+    const crashName = `crash-step.${imageFormat}`;
+    if (await safeShot(page, join(evidenceDir, crashName), guard)) {
+      result.screenshots.push(crashName);
+      result.evidenceMetadata.push({ file: crashName, capturedAt: new Date().toISOString(), label: 'Falha da execução', highlight: true });
+    }
     await dumpPage(page, evidenceDir, guard);
   } finally {
-    await browser.close().catch(() => {});
+    await context.close().catch(() => {});
+    if (!sharedBrowser && !acquireBrowser) await browser.close().catch(() => {});
     result.finishedAt = new Date().toISOString();
+    result.metrics.durationMs = performance.now() - started;
   }
 
   return guard.writeJson(join(evidenceDir, "result.json"), result);
 }
 
-async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard }) {
+async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard, imageFormat, capture, metrics, ready, timeout, final }) {
   const entry = { index, step: guard.redact(step), ok: true, detail: "" };
-  const shotName = `step-${String(index).padStart(2, "0")}.png`;
+  const shotName = `step-${String(index).padStart(2, "0")}.${imageFormat}`;
   try {
     if (page.isClosed()) throw new Error("Target closed: page was closed before step");
 
     if (step.goto !== undefined) {
       const url = resolveUrl(step.goto, baseUrl);
-      await gotoResilient(page, url);
+      await metrics.measure('navigation', () => gotoResilient(page, url, !ready));
       await dismissOverlays(page);
+      await metrics.measure('readiness', () => waitUntilReady(page, ready));
     } else if (step.fill) {
       const selector = step.fill.selector ?? step.fill[0];
       const value = expandEnv(step.fill.value ?? step.fill[1] ?? "", process.env, { required: true });
@@ -163,32 +179,27 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard 
       }
     } else if (step.expectUrl) {
       const want = step.expectUrl;
-      const cur = page.url();
-      if (!cur.includes(want)) {
-        entry.ok = false;
-        entry.detail = `esperava URL contendo "${want}", atual: ${cur}`;
-      }
+      try { await page.waitForURL(url => url.href.includes(want), { timeout, waitUntil: 'domcontentloaded' }); }
+      catch (error) { if (isCrashDetail(error)) throw error; entry.ok = false; entry.detail = `esperava URL contendo "${want}", atual: ${page.url()}`; }
     } else if (step.expectVisible) {
       try {
-        await page.waitForSelector(step.expectVisible, { timeout: 8_000, state: "visible" });
-      } catch {
+        await page.waitForSelector(step.expectVisible, { timeout, state: "visible" });
+      } catch (error) {
+        if (isCrashDetail(error)) throw error;
         entry.ok = false;
         entry.detail = `seletor visível não encontrado: ${step.expectVisible}`;
       }
-    } else if (step.wait) {
-      const ms = Math.min(Number(step.wait) || 1000, 15_000);
-      await page.waitForTimeout(ms);
+    } else if (step.wait !== undefined) {
+      const ms = Math.min(Number(step.wait), 15_000);
+      await metrics.measure('explicitWait', () => page.waitForTimeout(ms));
     } else if (step.expectText !== undefined) {
       const spec = normalizeExpectText(step.expectText);
       if (!spec) {
         entry.ok = false;
         entry.detail = `expectText inválido: ${JSON.stringify(step.expectText)}`;
       } else {
-        const body = await page.textContent(spec.selector, { timeout: 8_000 });
-        if (!body?.includes(spec.text)) {
-          entry.ok = false;
-          entry.detail = `texto "${spec.text}" não encontrado em ${spec.selector}`;
-        }
+        try { await metrics.measure('assertions', () => waitForText(page, spec, { timeout })); }
+        catch (error) { if (isCrashDetail(error)) throw error; entry.ok = false; entry.detail = `texto "${spec.text}" não encontrado em ${spec.selector}`; }
       }
     } else if (step.expectNoText !== undefined) {
       const spec = normalizeExpectText(step.expectNoText);
@@ -196,23 +207,8 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard 
         entry.ok = false;
         entry.detail = `expectNoText inválido: ${JSON.stringify(step.expectNoText)}`;
       } else {
-        const visible = await page.evaluate((text) => {
-          const hit = [...document.querySelectorAll("body *")].find((el) => {
-            if (el.children.length > 3) return false;
-            const t = (el.innerText || "").trim();
-            if (!t || t.length > 400) return false;
-            if (!t.includes(text)) return false;
-            const s = getComputedStyle(el);
-            if (s.display === "none" || s.visibility === "hidden" || Number(s.opacity) === 0) return false;
-            const r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-          });
-          return Boolean(hit);
-        }, spec.text);
-        if (visible) {
-          entry.ok = false;
-          entry.detail = `texto proibido visível: "${spec.text}"`;
-        }
+        try { await metrics.measure('assertions', () => waitForText(page, spec, { absent: true, timeout })); }
+        catch (error) { if (isCrashDetail(error)) throw error; entry.ok = false; entry.detail = `texto proibido visível ou seletor ausente: "${spec.text}" em ${spec.selector}`; }
       }
     } else {
       entry.ok = false;
@@ -223,7 +219,8 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard 
     entry.detail = guard.redactText(String(err).split("\n")[0].slice(0, 300));
   }
 
-  if (await safeShot(page, join(evidenceDir, shotName), guard)) {
+  if (shouldCapture(step, { policy: capture, failed: !entry.ok, final }) &&
+      await metrics.measure('screenshots', () => safeShot(page, join(evidenceDir, shotName), guard))) {
     entry.screenshot = shotName;
     result.screenshots.push(shotName);
     result.evidenceMetadata.push(guard.redact({ file: shotName, stepIndex: index,
@@ -295,14 +292,14 @@ async function leftAuthSurface(page, step) {
   return !/login|signin|access|entrar/i.test(url);
 }
 
-async function gotoResilient(page, url) {
+async function gotoResilient(page, url, legacyNetworkIdle) {
   try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
   } catch (err) {
     if (isCrashDetail(err)) throw err;
     await page.goto(url, { waitUntil: "load", timeout: 30_000 });
   }
-  await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
+  if (legacyNetworkIdle) await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
 }
 
 async function findBrokenImages(page) {

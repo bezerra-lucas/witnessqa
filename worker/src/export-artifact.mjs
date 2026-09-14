@@ -1,10 +1,11 @@
 /** Build a fresh, allowlisted upload bundle from privacy-versioned evidence. */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { packRun } from "./packer.mjs";
 import { createEvidenceGuard, PRIVACY_VERSION } from "./privacy.mjs";
 import { safeEvidencePath } from "./safe-evidence-path.mjs";
+import { safeImagePath, imageDigest, writeImage } from './evidence-image.mjs';
 
 export function exportArtifact(runDir, outDir, { fallbackVerdict = "" } = {}) {
   const canFallback = fallbackVerdict === "fail" || fallbackVerdict === "blocked";
@@ -15,6 +16,7 @@ export function exportArtifact(runDir, outDir, { fallbackVerdict = "" } = {}) {
   const guard = createEvidenceGuard();
   let flows = 0;
   let screenshots = 0;
+  const images = new Map();
 
   for (const entry of runDir && existsSync(runDir) ? readdirSync(runDir, { withFileTypes: true }) : []) {
     if (!entry.isDirectory()) continue;
@@ -36,9 +38,13 @@ export function exportArtifact(runDir, outDir, { fallbackVerdict = "" } = {}) {
     const copiedScreenshots = [];
 
     for (const name of safeResult.screenshots ?? []) {
-      const source = safeEvidencePath(sourceDir, name, { extension: ".png" });
+      const source = safeImagePath(sourceDir, name);
       if (!source) continue;
-      copyFileSync(source, join(targetDir, name));
+      const bytes = readFileSync(source);
+      const hash = imageDigest(bytes);
+      const target = join(targetDir, name);
+      writeImage(target, bytes, images.get(hash));
+      images.set(hash, target);
       copiedScreenshots.push(name);
       screenshots += 1;
     }
@@ -75,6 +81,25 @@ export function exportArtifact(runDir, outDir, { fallbackVerdict = "" } = {}) {
     flows = 1;
   }
   if (!flows) throw new Error("nenhuma evidência com privacyVersion compatível");
+  const metricsPath = runDir && safeEvidencePath(runDir, 'METRICS.json', { extension: '.json' });
+  if (metricsPath) {
+    try {
+      const source = JSON.parse(readFileSync(metricsPath, 'utf8'));
+      if (source.schema === 'witnessqa-metrics/v1' && source.privacyVersion === PRIVACY_VERSION) {
+        const metrics = { schema: source.schema, privacyVersion: PRIVACY_VERSION };
+        for (const key of ['durationMs', 'jobs', 'browserLaunches', 'scenarios', 'screenshots', 'workerCpuMs', 'workerPeakRssBytes', 'artifactBytes']) {
+          if (Number.isFinite(source[key]) && source[key] >= 0) metrics[key] = source[key];
+        }
+        if (['all', 'checkpoints'].includes(source.capturePolicy)) metrics.capturePolicy = source.capturePolicy;
+        metrics.phasesMs = {};
+        for (const key of ['report', 'analysis']) {
+          if (Number.isFinite(source.phasesMs?.[key]) && source.phasesMs[key] >= 0) metrics.phasesMs[key] = source.phasesMs[key];
+        }
+        metrics.resourceScope = 'Node worker only; browser processes excluded. Phase times can overlap.';
+        guard.writeJson(join(outDir, 'METRICS.json'), metrics);
+      }
+    } catch { /* Diagnostic metadata is optional; never copy unknown text. */ }
+  }
   const packed = packRun(outDir);
   return { path: outDir, flows, screenshots, report: packed.path };
 }

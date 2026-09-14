@@ -9,13 +9,16 @@
  *   witnessqa report [run-dir]
  *   witnessqa list
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
+import { realpathSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { platform } from "node:os";
 import YAML from "yaml";
+import { createRequire } from 'node:module';
+import { parseJobs, capturePolicy } from './worker/src/runtime-options.mjs';
+import { doctor } from './worker/src/doctor.mjs';
 import { executeCi } from "./worker/src/ci.mjs";
 
 const VERSION = "0.3.1";
@@ -30,6 +33,8 @@ const HELP = `
 
   Comandos:
     init                        Configuração inicial (config + cenário exemplo)
+    install-browser             Instala o Chromium da versão fixa (--with-deps no Linux)
+    doctor                      Verifica browser, URL, autenticação e diretório de saída
     run [alvos...]              Roda cenários; alvo = nome, arquivo ou pasta. Sem args = todos.
     explore <url>               Explora o app como grafo e gera cenários de regressão
     cover [url]                 Cobre alvos do config (ou 1 URL): descobre + roda + laudo no browser
@@ -47,7 +52,8 @@ const HELP = `
   Exemplos:
     witnessqa init
     witnessqa run
-    witnessqa run login checkout
+    witnessqa run login checkout --jobs 2 --capture checkpoints
+    witnessqa doctor --base-url https://meuapp.com --ready "[data-testid=app-ready]"
     witnessqa explore https://meuapp.com
     witnessqa login witness/login.yaml
     witnessqa report
@@ -166,6 +172,23 @@ async function main() {
       }));
       return;
 
+    case 'install-browser': {
+      if (rest.some(value => value !== '--with-deps')) die('uso: witnessqa install-browser [--with-deps]');
+      const require = createRequire(import.meta.url);
+      const browserCli = join(dirname(require.resolve('playwright-core/package.json')), 'cli.js');
+      process.exitCode = await runNode(browserCli, ['install', 'chromium', ...(rest.includes('--with-deps') ? ['--with-deps'] : [])]);
+      return;
+    }
+
+    case 'doctor': {
+      const report = await doctor({ baseUrl: flagValue(flags, rest, '--base-url'),
+        authFile: flagValue(flags, rest, '--auth'), outDir: flagValue(flags, rest, '--out'),
+        ready: flagValue(flags, rest, '--ready'), jobs: flagValue(flags, rest, '--jobs') ?? process.env.WITNESS_JOBS ?? '1' });
+      console.log(JSON.stringify(report, null, 2));
+      process.exitCode = report.ok ? 0 : 2;
+      return;
+    }
+
     case "ci": {
       if (rest.length !== 4 || rest[0] !== "--job" || rest[2] !== "--out" || !rest[1] || !rest[3]) {
         console.error("uso: witnessqa ci --job <json> --out <novo-dir>");
@@ -206,8 +229,8 @@ async function main() {
         );
         console.log(`✓ ${SCENARIO_DIR}/smoke.yaml criado`);
       }
-      console.log("\npróximo passo: witnessqa login && witnessqa cover");
-      console.log("(precisa de Chrome/Chromium no PATH, ou: npx playwright install chromium)");
+      console.log("\npróximo passo: witnessqa doctor --base-url https://meuapp.com && witnessqa run");
+      console.log("(precisa de Chrome/Chromium no PATH, ou: witnessqa install-browser)");
       return;
     }
 
@@ -224,11 +247,13 @@ async function main() {
       const targets = findScenarios(pos);
       if (!targets.length) die("nenhum cenário para rodar");
       const cfg = loadConfig();
-      const outDir = process.env.WITNESS_RUN_OUT || join(RUNS_DIR, String(Date.now()));
+      const outDir = process.env.WITNESS_RUN_OUT || flagValue(flags, rest, "--out") || join(RUNS_DIR, String(Date.now()));
       mkdirSync(outDir, { recursive: true });
       const base = flagValue(flags, rest, "--base-url") ?? cfg.baseUrl ?? "";
       const auth = flagValue(flags, rest, "--auth") ?? (existsSync(".witness/auth/login.json") ? ".witness/auth/login.json" : "");
-      const extra = ["--base-url", base, "--out", outDir];
+      const jobs = parseJobs(flagValue(flags, rest, '--jobs') ?? cfg.jobs ?? process.env.WITNESS_JOBS ?? '1');
+      const capture = capturePolicy(flagValue(flags, rest, '--capture') ?? cfg.capture ?? 'all');
+      const extra = ["--base-url", base, "--out", outDir, '--jobs', String(jobs), '--capture', capture];
       if (auth) extra.push("--auth", auth);
       if (rest.includes("--headed")) extra.push("--headed");
       console.log(`WitnessQA — rodando ${targets.length} cenário(s)\n`);
@@ -255,10 +280,11 @@ async function main() {
 
     case "cover": {
       const cfg = loadConfig();
-      const out = process.env.WITNESS_COVER_OUT || flagValue(flags, rest, "--out") || join(RUNS_DIR, "cover-graph");
+      const out = process.env.WITNESS_COVER_OUT || flagValue(flags, rest, "--out") || join(RUNS_DIR, `cover-graph-${Date.now()}`);
       mkdirSync(out, { recursive: true });
       const max = flagValue(flags, rest, "--max") ?? "80";
-      const jobs = flagValue(flags, rest, "--jobs") ?? "2";
+      const jobs = parseJobs(flagValue(flags, rest, '--jobs') ?? cfg.jobs ?? process.env.WITNESS_JOBS ?? '1');
+      const capture = capturePolicy(flagValue(flags, rest, '--capture') ?? cfg.capture ?? 'all');
       const discoverOnly = rest.includes("--discover-only");
       const targets = [];
       if (pos[0]) {
@@ -276,11 +302,15 @@ async function main() {
       }
 
       let code = 0;
-      for (const t of targets) {
+      const scenarioDirs = [];
+      for (const [index, t] of targets.entries()) {
         if (!t?.url) continue;
         console.log(`\ncover → ${t.name ?? t.url}`);
-        const extra = [t.url, "--out", out, "--max", String(max)];
+        const targetOut = targets.length === 1 ? out : join(out, `target-${index + 1}`);
+        scenarioDirs.push(join(targetOut, 'witness'));
+        const extra = [t.url, "--out", targetOut, "--max", String(max)];
         if (t.auth) extra.push("--auth", t.auth);
+        if (flagValue(flags, rest, '--ready') ?? t.ready) extra.push('--ready', flagValue(flags, rest, '--ready') ?? t.ready);
         if (t.name) extra.push("--prefix", String(t.name));
         code = await runNode(workerFile("cover.mjs"), extra);
         if (code !== 0) break;
@@ -288,9 +318,9 @@ async function main() {
       if (code !== 0) process.exit(code);
 
       if (!discoverOnly) {
-        const runOut = process.env.WITNESS_RUN_OUT || join(RUNS_DIR, "cover-live");
+        const runOut = process.env.WITNESS_RUN_OUT || join(RUNS_DIR, `cover-live-${Date.now()}`);
         mkdirSync(runOut, { recursive: true });
-        const workerCode = await runNode(workerFile("worker.mjs"), [join(out, "witness"), "--out", runOut, "--jobs", String(jobs)]);
+        const workerCode = await runNode(workerFile("worker.mjs"), [...scenarioDirs, "--out", runOut, "--jobs", String(jobs), "--capture", capture]);
         await publishReport(runOut, rest);
         process.exitCode = workerCode;
       } else {
@@ -381,6 +411,7 @@ async function publishReport(dir, rest = []) {
 function flagValue(_flags, rest, name) {
   const i = rest.indexOf(name);
   if (i < 0) return undefined;
+  if (!rest[i + 1] || rest[i + 1].startsWith('--')) die(`valor ausente para ${name}`);
   return rest[i + 1];
 }
 
@@ -409,7 +440,7 @@ function repositoryIdentity() {
   };
 }
 
-const VALUE_FLAGS = new Set(["--auth", "--base-url", "--job", "--jobs", "--max", "--max-nodes", "--out"]);
+const VALUE_FLAGS = new Set(["--auth", "--base-url", "--job", "--jobs", "--max", "--max-nodes", "--out", "--capture", "--ready"]);
 
 export function positionalArgs(args) {
   const positionals = [];
@@ -424,7 +455,7 @@ export function positionalArgs(args) {
   return positionals;
 }
 
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+const isMain = process.argv[1] && existsSync(process.argv[1]) && fileURLToPath(import.meta.url) === realpathSync(resolve(process.argv[1]));
 if (isMain) {
   // Evidence must stay private even when the invoking shell uses a
   // collaborative umask. Child workers inherit this restriction.

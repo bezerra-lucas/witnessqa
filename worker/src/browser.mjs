@@ -38,7 +38,8 @@ export function findBrowserExecutable() {
 }
 
 export async function launchBrowser(opts = {}) {
-  const executablePath = opts.executablePath || findBrowserExecutable();
+  const explicit = opts.executablePath || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || process.env.CHROME_PATH || process.env.CHROMIUM_PATH;
+  const executablePath = explicit || (existsSync(chromium.executablePath()) ? chromium.executablePath() : findBrowserExecutable());
   const launchOpts = {
     headless: opts.headless !== false,
     args: ["--disable-dev-shm-usage", "--no-sandbox", ...(opts.args ?? [])],
@@ -48,6 +49,7 @@ export async function launchBrowser(opts = {}) {
   try {
     return await chromium.launch(launchOpts);
   } catch (first) {
+    if (explicit) throw new Error('Configured Chromium could not launch; check its path and system dependencies');
     try {
       return await chromium.launch({ ...launchOpts, channel: "chrome", executablePath: undefined });
     } catch {
@@ -55,7 +57,7 @@ export async function launchBrowser(opts = {}) {
         return await chromium.launch({ ...launchOpts, channel: "msedge", executablePath: undefined });
       } catch {
         const hint =
-          "Não achei um Chrome/Chromium. Instale o Chrome ou rode: npx playwright install chromium";
+          "Não achei um Chrome/Chromium. Instale o Chrome ou rode: witnessqa install-browser --with-deps";
         throw new Error(`${hint}\n${String(first).split("\n")[0]}`);
       }
     }
