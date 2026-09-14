@@ -14,6 +14,15 @@ jobs:
       - run: npm install
       - run: npx playwright install chromium --with-deps
       - run: npm test
+        env:
+          WITNESS_REPORT_TEST_ARTIFACTS: ${{ runner.temp }}/report-hierarchy-ui
+      - name: Upload synthetic report UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-hierarchy-ui
+          path: ${{ runner.temp }}/report-hierarchy-ui/
+          if-no-files-found: warn
       - name: Fixture cover via CLI
         run: node cli.mjs --version
 
