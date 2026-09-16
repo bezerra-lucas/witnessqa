@@ -1,9 +1,11 @@
 # Install the browser through the exact playwright-core in package-lock.json.
 FROM node:22-bookworm-slim
+ARG WITNESS_WITH_MIDSCENE=0
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/witnessqa-browsers
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && node node_modules/playwright-core/cli.js install --with-deps chromium \
+RUN if [ "$WITNESS_WITH_MIDSCENE" = "1" ]; then npm ci; else npm ci --omit=dev; fi \
+    && node node_modules/playwright-core/cli.js install --with-deps chromium \
     && npm cache clean --force && rm -rf /var/lib/apt/lists/*
 COPY cli.mjs ./
 COPY worker/src ./worker/src

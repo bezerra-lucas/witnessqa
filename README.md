@@ -58,6 +58,10 @@ targets:
 
 Use `run` for regression in every PR. Use `cover` explicitly to discover routes and draft smoke tests, then review/version their assertions. A discovered heading is not a complete business acceptance criterion.
 
+For optional natural-language actions and visual assertions inside those scenarios,
+see [Midscene execution](docs/midscene.md). The default installation and Docker
+image remain deterministic; the AI engine and model access are opt-in.
+
 `$WITNESS_EMAIL` / `$WITNESS_PASSWORD` expand in `fill.value`.
 
 Credentials must stay in a CI secret store or ephemeral environment variables;

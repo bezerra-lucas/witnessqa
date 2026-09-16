@@ -15,6 +15,7 @@ import { createEvidenceGuard, PRIVACY_VERSION } from "./privacy.mjs";
 import { capturePolicy, shouldCapture } from './runtime-options.mjs';
 import { waitForText, waitUntilReady } from './conditions.mjs';
 import { phaseMetrics } from './metrics.mjs';
+import { createMidsceneSession, usesMidscene } from './midscene.mjs';
 
 const NOISE_CONSOLE = /Failed to load resource:.*(favicon|hot-update|\.map|status of 404)|Download the React DevTools|third-party cookie will be blocked/i;
 
@@ -24,7 +25,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
   const metrics = phaseMetrics();
   const started = performance.now();
   mkdirSync(evidenceDir, { recursive: true });
-  const guard = createEvidenceGuard({ scenario });
+  const guard = createEvidenceGuard({ scenario, additionalSecrets: [process.env.MIDSCENE_MODEL_API_KEY, process.env.WITNESS_MIDSCENE_MODEL_API_KEY] });
   const vp = scenario.viewport ?? viewport ?? { width: 1440, height: 950 };
   const auth = scenario.auth ?? authFile;
   const appBase = scenario.app ?? baseUrl ?? "";
@@ -57,14 +58,16 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
   let browser;
   let context;
   let page;
+  let midscene;
   try {
     browser = sharedBrowser ?? await metrics.measure('browserAcquire', () => acquireBrowser ? acquireBrowser() : launchBrowser({ headless: headed !== true }));
     if (auth && !existsSync(auth)) throw new Error('Configured storage state file is missing');
     context = await metrics.measure('context', () => browser.newContext({ viewport: vp, ...(auth ? { storageState: auth } : {}) }));
     page = await context.newPage();
+    if (usesMidscene(scenario)) midscene = await createMidsceneSession(page, { scenario, guard, result });
   } catch (err) {
     result.verdict = "blocked";
-    result.failure = guard.redact({ type: "browser", message: String(err).slice(0, 400) });
+    result.failure = guard.redact({ type: err.code?.startsWith('midscene-') ? err.code : "browser", message: String(err).slice(0, 400) });
     await context?.close().catch(() => {});
     if (!sharedBrowser && !acquireBrowser) await browser?.close().catch(() => {});
     result.finishedAt = new Date().toISOString();
@@ -100,11 +103,11 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
 
   try {
     for (const [i, step] of scenario.steps.entries()) {
-      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result, guard, imageFormat, capture, metrics, ready: scenario.ready, timeout: scenario.assertionTimeoutMs ?? 8000, final: i === scenario.steps.length - 1 });
+      const entry = await runStep(page, step, i, { evidenceDir, baseUrl: appBase, result, guard, imageFormat, capture, metrics, midscene, ready: scenario.ready, timeout: scenario.assertionTimeoutMs ?? 8000, final: i === scenario.steps.length - 1 });
       result.steps.push(entry);
       if (!entry.ok) {
-        result.verdict = isCrashDetail(entry.detail) ? "blocked" : "fail";
-        result.failure = guard.redact({ stepIndex: i, step, detail: entry.detail, type: result.verdict === "blocked" ? "crash" : "step" });
+        result.verdict = entry.failureType === 'midscene-timeout' || isCrashDetail(entry.detail) ? "blocked" : "fail";
+        result.failure = guard.redact({ stepIndex: i, step, detail: entry.detail, type: entry.failureType ?? (result.verdict === "blocked" ? "crash" : "step") });
         await dumpPage(page, evidenceDir, guard);
         break;
       }
@@ -132,6 +135,7 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
     }
     await dumpPage(page, evidenceDir, guard);
   } finally {
+    await midscene?.close().catch(() => {});
     await context.close().catch(() => {});
     if (!sharedBrowser && !acquireBrowser) await browser.close().catch(() => {});
     result.finishedAt = new Date().toISOString();
@@ -141,13 +145,15 @@ export async function runScenario(scenario, { evidenceDir, baseUrl, viewport, au
   return guard.writeJson(join(evidenceDir, "result.json"), result);
 }
 
-async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard, imageFormat, capture, metrics, ready, timeout, final }) {
+async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard, imageFormat, capture, metrics, midscene, ready, timeout, final }) {
   const entry = { index, step: guard.redact(step), ok: true, detail: "" };
   const shotName = `step-${String(index).padStart(2, "0")}.${imageFormat}`;
   try {
     if (page.isClosed()) throw new Error("Target closed: page was closed before step");
 
-    if (step.goto !== undefined) {
+    if (step.aiAct !== undefined || step.aiAssert !== undefined) {
+      await metrics.measure('midscene', () => midscene.execute(step, entry));
+    } else if (step.goto !== undefined) {
       const url = resolveUrl(step.goto, baseUrl);
       await metrics.measure('navigation', () => gotoResilient(page, url, !ready));
       await dismissOverlays(page);
@@ -216,16 +222,22 @@ async function runStep(page, step, index, { evidenceDir, baseUrl, result, guard,
     }
   } catch (err) {
     entry.ok = false;
+    if (err.code === 'midscene-timeout') entry.failureType = err.code;
     entry.detail = guard.redactText(String(err).split("\n")[0].slice(0, 300));
   }
 
-  if (shouldCapture(step, { policy: capture, failed: !entry.ok, final }) &&
-      await metrics.measure('screenshots', () => safeShot(page, join(evidenceDir, shotName), guard))) {
-    entry.screenshot = shotName;
-    result.screenshots.push(shotName);
-    result.evidenceMetadata.push(guard.redact({ file: shotName, stepIndex: index,
-      capturedAt: new Date().toISOString(), label: step.evidence?.label || '',
-      highlight: step.evidence?.highlight === true }));
+  const aiStep = step.aiAct !== undefined || step.aiAssert !== undefined;
+  if (aiStep || shouldCapture(step, { policy: capture, failed: !entry.ok, final })) {
+    if (await metrics.measure('screenshots', () => safeShot(page, join(evidenceDir, shotName), guard))) {
+      entry.screenshot = shotName;
+      result.screenshots.push(shotName);
+      result.evidenceMetadata.push(guard.redact({ file: shotName, stepIndex: index,
+        capturedAt: new Date().toISOString(), label: step.evidence?.label || '',
+        highlight: step.evidence?.highlight === true }));
+    } else if (aiStep) {
+      entry.ok = false;
+      entry.detail = `${entry.detail ? `${entry.detail}; ` : ''}AI step has no valid screenshot evidence`;
+    }
   }
   return entry;
 }

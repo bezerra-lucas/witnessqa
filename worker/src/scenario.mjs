@@ -17,6 +17,8 @@
  * viewport: {width: 1440, height: 950}
  */
 
+import { validateMidsceneScenario } from './midscene.mjs';
+
 export function parseScenario(raw, yamlLib) {
   let doc;
   try {
@@ -60,5 +62,6 @@ export function parseScenario(raw, yamlLib) {
       throw new Error('Metadados da evidência inválidos: use { label?, highlight? }');
     }
   }
+  validateMidsceneScenario(doc);
   return doc;
 }

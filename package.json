@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "test:midscene:live": "node scripts/validate-midscene.mjs",
     "witness": "node cli.mjs"
   },
   "files": [
@@ -21,7 +22,8 @@
     "docs/performance",
     "docs/report-hierarchy.md",
     "docs/releases",
-    "action.yml"
+    "action.yml",
+    "docs/midscene.md"
   ],
   "keywords": [
     "qa",
@@ -47,5 +49,16 @@
     "pngjs": "^7.0.0",
     "sharp": "0.35.4",
     "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@midscene/web": "1.12.7"
+  },
+  "peerDependencies": {
+    "@midscene/web": "1.12.7"
+  },
+  "peerDependenciesMeta": {
+    "@midscene/web": {
+      "optional": true
+    }
   }
 }
