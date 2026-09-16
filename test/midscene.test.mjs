@@ -48,7 +48,7 @@ test('real Midscene SDK preserves assertions, masks model screenshots, records u
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ id: `fixture-${requests.length}`, model: 'gpt-5.6-luna',
         choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: `<data-json>${JSON.stringify({ pass: responseMode === 'malformed' ? 'false' : responseMode === 'pass', thought: responseMode === 'pass' ? 'Expected heading visible' : 'Required heading is absent' })}</data-json>` } }],
-        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 },
+        usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, prompt_tokens_details: { cached_tokens: 40 } },
       }));
       return;
     }
@@ -70,6 +70,13 @@ test('real Midscene SDK preserves assertions, masks model screenshots, records u
     assert.equal(passed.steps[1].ok, true);
     assert.ok(passed.steps[1].screenshot, 'AI checks always retain evidence');
     assert.equal(passed.aiUsage.totalTokens, 120);
+    assert.equal(passed.aiCalls.length, 1);
+    assert.equal(passed.aiCalls[0].imageCount, 1);
+    assert.equal(passed.aiCalls[0].stepIndex, 1);
+    assert.equal(passed.aiCalls[0].cachedInputTokens, 40);
+    assert.equal(passed.aiCalls[0].uncachedInputTokens, 60);
+    assert.equal(passed.aiCalls[0].status, 'completed');
+    assert.doesNotMatch(JSON.stringify(passed.aiCalls), /data:image|private-sentinel|heading Ready/);
     assert.equal(passed.engine.name, 'midscene');
     assert.doesNotMatch(JSON.stringify(requests), /private-sentinel/);
     const image = requests[0].messages.flatMap(message => Array.isArray(message.content) ? message.content : []).find(part => part.type === 'image_url');

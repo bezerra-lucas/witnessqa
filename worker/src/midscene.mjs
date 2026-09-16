@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+import { instrumentModelCaller, withCallTelemetry } from './midscene-telemetry.mjs';
+
 export const MIDSCENE_VERSION = '1.12.7';
 export const AI_ACTIONS = ['aiAct', 'aiAssert'];
 const ACTIONS = [...AI_ACTIONS, 'goto', 'fill', 'click', 'wait', 'expectUrl', 'expectVisible', 'expectText', 'expectNoText'];
@@ -67,6 +69,9 @@ async function loadRuntime() {
     const installed = JSON.parse(readFileSync(join(dirname(agentPath), '../../../package.json'), 'utf8')).version;
     if (installed !== MIDSCENE_VERSION) throw new Error('Unsupported Midscene adapter version');
     const fromMidscene = createRequire(agentPath);
+    const callerPath = join(dirname(fromMidscene.resolve('@midscene/core')), 'ai-model/service-caller/call.js');
+    instrumentModelCaller(fromMidscene(callerPath));
+    instrumentModelCaller(fromMidscene(join(dirname(callerPath), 'index.js')));
     return { ...require('@midscene/web/playwright/agent'), logger: fromMidscene('@midscene/shared/logger') };
   })().catch(() => { runtime = undefined; throw Object.assign(new Error(`Install the optional engine: npm install @midscene/web@${MIDSCENE_VERSION}`), { code: 'midscene-unavailable' }); });
   return runtime;
@@ -87,6 +92,7 @@ export async function createMidsceneSession(page, { scenario, guard, result, env
   result.engine = { name: 'midscene', version: MIDSCENE_VERSION, model: modelConfig.MIDSCENE_MODEL_NAME,
     family: modelConfig.MIDSCENE_MODEL_FAMILY, timeoutMs,
     replanningCycleLimit: scenario.midscene?.replanningCycleLimit ?? 8 };
+  result.aiCalls = [];
   result.aiUsage = { calls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   let agent;
   let closed = false;
@@ -151,9 +157,9 @@ export async function createMidsceneSession(page, { scenario, guard, result, env
             thought: 'string: concise evidence explaining the decision',
           }, insight.resolveModelRuntime(), { domIncluded: false, screenshotIncluded: true }, undefined, { abortSignal: controller.signal }).then(response => response.output);
         };
-        const operation = action === 'aiAssert'
+        const operation = withCallTelemetry(result, entry, action, () => action === 'aiAssert'
           ? query()
-          : agent.aiAct(step.aiAct, { abortSignal: controller.signal, cacheable: false });
+          : agent.aiAct(step.aiAct, { abortSignal: controller.signal, cacheable: false }));
         const response = await Promise.race([operation, deadline]);
         if (action === 'aiAssert') {
           entry.ok = response?.pass === true;
