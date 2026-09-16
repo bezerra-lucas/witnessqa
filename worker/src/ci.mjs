@@ -32,7 +32,7 @@ const SCENARIO_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/;
 const ALLOWED_ENVIRONMENT = /^(?:DOMOD_[A-Z0-9_]+|WITNESS_[A-Z0-9_]+|PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH|CHROME_PATH|CHROMIUM_PATH)$/;
 const KNOWN_VERDICTS = new Set(["pass", "fail", "warn", "blocked"]);
 const SUPPORTED_EVIDENCE = new Set(["json", "screenshot", "png", "html", "url", "text", "report"]);
-const EXECUTABLE_ACTIONS = new Set(["goto", "fill", "click", "expectUrl", "expectVisible", "wait", "expectText", "expectNoText"]);
+const EXECUTABLE_ACTIONS = new Set(["goto", "fill", "click", "expectUrl", "expectVisible", "wait", "expectText", "expectNoText", "aiAct", "aiAssert"]);
 const MAX_JSON_BYTES = 1024 * 1024;
 
 export class CiBlocked extends Error {
@@ -447,6 +447,7 @@ function validateScenario(document, environment, subjectCheckout) {
     .filter((value) => typeof value === "string" && value.trim());
   const specificAssertions = document.steps.filter((step) => {
     if (!step || typeof step !== "object") return false;
+    if (step.aiAssert !== undefined) return typeof step.aiAssert === 'string' && Boolean(step.aiAssert.trim());
     if (step.expectText !== undefined) return Boolean(normalizeExpectText(step.expectText)?.text?.trim());
     if (step.expectNoText !== undefined) return Boolean(normalizeExpectText(step.expectNoText)?.text?.trim());
     if (step.expectUrl !== undefined) return isSpecificUrlAssertion(step.expectUrl, document.app, navigations);
@@ -477,7 +478,7 @@ function nonEmptyStringArray(value, minimum) {
 
 function validAction(step, action) {
   const value = step[action];
-  if (["goto", "expectUrl", "expectVisible"].includes(action)) {
+  if (["goto", "expectUrl", "expectVisible", "aiAct", "aiAssert"].includes(action)) {
     return typeof value === "string" && Boolean(value.trim());
   }
   if (["expectText", "expectNoText"].includes(action)) {

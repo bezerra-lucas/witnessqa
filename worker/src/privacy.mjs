@@ -141,11 +141,9 @@ export function createEvidenceGuard({ scenario = {}, env = process.env, addition
 
   async function captureScreenshot(page, path, options = {}) {
     try {
-      const mask = selectors.map((selector) => page.locator(selector));
-      for (const secret of secrets) mask.push(page.getByText(secret, { exact: false }));
       const format = extname(path).slice(1).toLowerCase();
       if (!['png', 'webp'].includes(format)) throw new Error('Unsupported screenshot format');
-      const png = await page.screenshot({ ...options, path: undefined, type: 'png', mask, maskColor: "#000000" });
+      const png = await screenshotBuffer(page, options);
       const key = `${format}:${imageDigest(png)}`;
       const same = previousCapture?.key === key;
       const bytes = same ? previousCapture.bytes : await encodeScreenshot(png, format);
@@ -158,6 +156,12 @@ export function createEvidenceGuard({ scenario = {}, env = process.env, addition
     }
   }
 
+  async function screenshotBuffer(page, options = {}) {
+    const mask = selectors.map(selector => page.locator(selector));
+    for (const secret of secrets) mask.push(page.getByText(secret, { exact: false }));
+    return page.screenshot({ ...options, path: undefined, type: 'png', mask, maskColor: '#000000' });
+  }
+
   return {
     privacyVersion: PRIVACY_VERSION,
     redact,
@@ -167,6 +171,7 @@ export function createEvidenceGuard({ scenario = {}, env = process.env, addition
     writeText,
     captureHtml,
     captureScreenshot,
+    screenshotBuffer,
   };
 }
 
