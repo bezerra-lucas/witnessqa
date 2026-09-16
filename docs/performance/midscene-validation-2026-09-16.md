@@ -19,11 +19,10 @@ was used in this model run.
 
 This is evidence of browser execution against running code, not evidence that
 DOMOD's business journeys are covered or that PR acceptance criteria are
-generated autonomously. The shared DOMOD test was not executed: automatic
-approval review required explicit authorization for admin navigation and sending
-its screenshots/content to the model provider. The prepared DOMOD plan is
-navigation-only (organization → project → units), with a nonexistent-organization
-negative control; it must not be presented as executed.
+generated autonomously. The shared DOMOD test was initially blocked by automatic
+approval review, which required explicit authorization for admin navigation and
+sending its screenshots/content to the model provider. The user subsequently
+authorized that scope; the resulting execution is recorded below.
 
 The synthetic app's cart contents are static and its confirmation button reveals
 a local message. These checks exercise browser actions and visible assertions;
@@ -74,3 +73,55 @@ comparison has not been measured. No efficiency improvement is claimed here.
 
 Reproduce the live check with the instructions in [Midscene execution](../midscene.md).
 Use a new output directory to preserve each attempt.
+
+## Authorized DOMOD development run
+
+After explicit user authorization, the same runtime code from PR #5 commit
+`27e10bc2c036e19162bba7351dde54b6f0e3199d` was tested against DOMOD development.
+SHA-256 hashes of the adapter, executor, privacy guard, packer and report view in
+the container matched that checkout before execution. No engine changes were
+needed. A validation script called `runScenario` and `packRun` directly so it
+could apply a browser request guard without changing product behavior.
+
+The QA admin login was deterministic and ran before invoking the model. Each
+scenario received its own authenticated browser context. Subsequent browser
+requests were restricted to approved hosts and GET/HEAD/OPTIONS; WebSockets and
+service workers were blocked. Zero disallowed requests were observed. This is
+a navigation guard, not full application isolation or proof that GET handlers
+cannot have server-side effects.
+
+| Criterion | Result |
+| --- | --- |
+| Open organization, then project through natural-language instructions | PASS; resulting project URL checked deterministically |
+| Open units through natural-language instructions | PASS; units URL checked deterministically |
+| Find the QA client's unit in the visible list | PASS; visual assertion plus deterministic text assertion |
+| Require a nonexistent organization in a fresh session | FAIL, as expected for the negative control |
+
+| Measurement | DOMOD run, both scenarios |
+| --- | ---: |
+| Wall time, execution and report, excluding authentication | 41.63 s |
+| CPU time, dedicated container cgroup | 10.96 s |
+| Peak cgroup memory, sampled every 100 ms | 1,159.38 MiB (1.13 GiB) |
+| Model calls | 7 |
+| Input / output tokens reported | 141,657 / 592 |
+| Total tokens reported | 142,249 |
+| Screenshot files | 5 |
+| Report HTML | 73,047 bytes |
+| Blocked browser requests / OOM events | 0 / 0 |
+
+Model, Codex version, browser, reasoning effort and container limits matched the
+synthetic run. This is a different application and workload; the figures do not
+establish an optimization against that earlier run. Token counts do not establish
+subscription usage or monetary cost, and cached input was not measured separately.
+
+The combined report correctly remains FAIL (exit 1), because it contains the
+intentional negative control. The integration validation succeeded because the
+predeclared pair `pass / fail` was observed. No known failure was reclassified.
+The run does not approve the whole DOMOD application or validate business writes,
+personalization persistence, contracts or payment flows.
+
+Session files, the temporary QA credential file and the execution container were
+removed after the run. The active native runner was not upgraded. The delivered
+private evidence bundle contains scenarios, original results, screenshots, report,
+resource measurements, deployed image/revision identities and the reproduction
+script, without credentials or session state.
